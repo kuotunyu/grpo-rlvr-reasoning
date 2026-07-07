@@ -1,0 +1,17 @@
+# ---- 本機 CPU 開發:rewards.py + pytest(Windows / WSL2 都只需要這個)----
+pytest>=7.4
+
+# ---- eval/run_eval.py(GPU 環境:Colab 或本機 4090)----
+torch>=2.4                # 4090 請依 pytorch.org 安裝對應 CUDA build
+transformers>=4.56
+datasets>=3.0
+accelerate>=1.0
+peft>=0.14                # 只有 --adapter 模式需要
+huggingface_hub>=0.34
+bitsandbytes>=0.44        # 只有 --load-in-4bit 需要
+matplotlib>=3.8           # notebook 畫曲線用(eval 不需要)
+
+# ---- Colab 訓練依賴(unsloth / vllm / trl / transformers 的版本 pin)----
+# 刻意「不」放在這裡:由 train_grpo_colab.ipynb 的 install cell 管理,
+# 逐字沿用 Unsloth 官方 notebook 的 Colab 安裝方式(pin 會隨官方更新漂移,
+# 裝壞時回官方 notebook 重抄現行 install cell 即可)。

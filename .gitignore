@@ -1,0 +1,36 @@
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# 模型權重 / checkpoint / 訓練輸出 —— 一律不進 git
+outputs/
+outputs_*/
+checkpoints/
+checkpoint-*/
+grpo_saved_lora*/
+models/
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.pth
+
+# 實驗追蹤 / 快取
+wandb/
+unsloth_compiled_cache/
+.cache/
+hf_cache/
+
+# 憑證與本機工具設定
+.env
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 保留追蹤的成果(圖、報告、逐題記錄)—— results/ 本身不 ignore
