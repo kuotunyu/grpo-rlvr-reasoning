@@ -9,7 +9,7 @@
     python eval/run_eval.py --models base
     python eval/run_eval.py --models trained --trained-model .../qwen2.5-3b-grpo-gsm8k
     # 或評測還沒 merge 的 LoRA checkpoint:
-    python eval/run_eval.py --models trained --adapter /path/to/checkpoint-500
+    python eval/run_eval.py --models trained --adapter /path/to/checkpoint-1000
 
 輸出:
     results/eval_generations_{base,trained}.jsonl   逐題完整記錄(可稽核)
