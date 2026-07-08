@@ -1,0 +1,15 @@
+{
+  "tag": "base",
+  "model": "Qwen/Qwen2.5-3B-Instruct",
+  "num_questions": 200,
+  "strict_accuracy": 0.705,
+  "flexible_accuracy": 0.76,
+  "soft_format_rate": 0.835,
+  "strict_format_rate": 0.195,
+  "mean_output_tokens": 282.69,
+  "max_new_tokens": 768,
+  "dtype": "torch.bfloat16",
+  "load_in_4bit": false,
+  "timestamp": "2026-07-08T17:42:23",
+  "gpu": "Tesla T4"
+}

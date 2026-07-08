@@ -1,0 +1,15 @@
+{
+  "tag": "trained",
+  "model": "steven0226/qwen2.5-3b-grpo-gsm8k",
+  "num_questions": 200,
+  "strict_accuracy": 0.79,
+  "flexible_accuracy": 0.795,
+  "soft_format_rate": 0.91,
+  "strict_format_rate": 0.9,
+  "mean_output_tokens": 261.105,
+  "max_new_tokens": 768,
+  "dtype": "torch.bfloat16",
+  "load_in_4bit": false,
+  "timestamp": "2026-07-08T18:32:12",
+  "gpu": "Tesla T4"
+}
