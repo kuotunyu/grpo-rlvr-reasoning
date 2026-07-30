@@ -10,18 +10,43 @@
 - 模型:🤗 [qwen2.5-3b-grpo-gsm8k](https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k)(merged 16bit)/
   [qwen2.5-3b-grpo-gsm8k-lora](https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k-lora)(LoRA adapter)
 
+> **English TL;DR** — GRPO/RLVR fine-tuning of Qwen2.5-3B on GSM8K using only
+> programmatically verifiable rewards. On the same 200 test problems, strict accuracy improved
+> from **70.5% to 79.0%** (paired exact McNemar `p=0.0046`) and strict format adherence from
+> **19.5% to 90.0%**. Flexible accuracy improved by 3.5 points but was not significant
+> (`p=0.2478`); all per-example outputs and paired analyses are included.
+
+## 結果一覽
+
+同一批 GSM8K test 前 200 題、greedy decoding 的逐題配對結果：
+
+| 指標 | Base | GRPO | Δ | paired evidence |
+|---|---:|---:|---:|---:|
+| Strict accuracy（`<answer>` 內最後一個數字） | 70.5% | **79.0%** | +8.5% | exact McNemar p=0.0046 |
+| Flexible accuracy（全文最後一個數字） | 76.0% | 79.5% | +3.5% | p=0.2478，未達顯著 |
+| Strict format | 19.5% | **90.0%** | +70.5% | p≈5.9×10⁻³⁹ |
+| 平均輸出 tokens | 283 | **261** | −22 | paired 95% CI [−32.4, −10.8] |
+
+完整數字、25 個由錯轉對／8 個由對轉錯的配對關係與固定案例，見
+[paired analysis](results/paired_analysis.md)。這裡刻意分開 strict 與 flexible
+口徑：前者的改善顯著，後者目前沒有足夠證據宣稱確定提升。
+
 ## 為什麼是 RLVR
 
 2026 年 RL 訓練 LLM 的主流敘事已經從「訓 reward model 再做 RLHF」轉向
 **RLVR(Reinforcement Learning with Verifiable Rewards)**:在數學、程式這類
 答案可程式驗證的領域,獎勵直接由規則判分 ——
 
-- **不會被 reward hacking**:答案對就是對,沒有可以討好的神經網路;
+- **降低 reward-model gaming**:答案由確定性規則判分,不用討好另一個神經網路;
 - **便宜**:省掉收集偏好資料與訓練 reward model 的整條管線;
 - **GRPO 再省一層**:同一題抽 8 個回答、組內比較算相對優勢(advantage),
   連 PPO 的 value model 也不用。
 
-本專案的獎勵組(定義在 [rewards.py](rewards.py),有完整 [pytest](tests/test_rewards.py)):
+規則式 verifier 仍可能有可鑽漏洞，因此本專案另外保留逐題輸出並檢查格式、答案抽取與
+長度分布；較準確的說法是「在目前的規則與抽樣結果中未觀察到明顯 reward hacking」，
+而不是宣稱 RLVR 天生不可能被 hack。
+
+本專案的獎勵組(定義在 [rewards.py](rewards.py),有完整 [pytest](tests/)):
 
 | 獎勵函數 | 條件 | 分數 |
 |---|---|---|
@@ -33,7 +58,8 @@
 ## 訓練結果:reward 爬升確實,但「長度隨訓練成長」沒有出現
 
 reward 曲線很乾淨:從 ~1.4 一路爬到 200 步左右穩定在 3.1~3.3(滿分 3.5),之後
-800 步都維持在這個高原,沒有崩潰、也沒有 reward hacking 的痕跡。
+800 步都維持在這個高原,沒有崩潰；逐題輸出與長度分布中也未觀察到明顯的
+reward hacking 模式。
 
 | reward 曲線(1000 步) | completion 長度曲線(1000 步) |
 |---|---|
@@ -59,6 +85,12 @@ token**(以 base 模型答錯的題目當難度 proxy,trained 模型在這些難
 
 完整對照表:[results/eval_report.md](results/eval_report.md)(訓練後由
 [eval/run_eval.py](eval/run_eval.py) 產生;base 與訓練後模型的數字都是真實跑出來的)。
+逐題配對檢定由 [eval/analyze_paired.py](eval/analyze_paired.py) 對已提交的兩份 JSONL
+重算，不需重新執行模型：
+
+```bash
+python eval/analyze_paired.py
+```
 
 訓練**只用 train split(7,473 題)**;test split 在訓練管線中零接觸
 (notebook 內有程式級 assert),只在評測時使用 —— 無資料污染。
@@ -69,7 +101,7 @@ token**(以 base 模型答錯的題目當難度 proxy,trained 模型在這些難
 
 ```bash
 pip install pytest
-python -m pytest tests/ -v        # 59 個測試全綠
+python -m pytest tests/ -v        # 63 個測試全綠
 ```
 
 ### 1. Colab 訓練
@@ -101,7 +133,7 @@ OOM 時的調參階梯(依序嘗試):`GPU_MEMORY_UTILIZATION` 0.85→0.7 →
 
 ```bash
 # Colab 或本機 GPU(如 4090)皆可;約 20–40 分鐘
-python eval/run_eval.py --trained-model <HF_USERNAME>/qwen2.5-3b-grpo-gsm8k
+python eval/run_eval.py --trained-model steven0226/qwen2.5-3b-grpo-gsm8k
 # 也可以直接評 Drive 上還沒 merge 的 LoRA checkpoint:
 python eval/run_eval.py --models trained --adapter /path/to/checkpoint-1000
 ```
@@ -128,10 +160,11 @@ L4 + 3B 是成本甜蜜點;想上 7B 只要改 notebook 的 PARAMS cell:
 
 ```
 rewards.py               # SYSTEM_PROMPT + 抽取 helpers + 4 個獎勵函數(唯一事實來源)
-tests/test_rewards.py    # 59 個單元測試(本機 CPU,pip install pytest 即可)
+tests/                   # 63 個單元測試(獎勵函數 + paired analysis)
 train_grpo_colab.ipynb   # Colab 訓練 notebook(SMOKE_TEST / RESUME / 自動 push / 自動釋放)
 eval/run_eval.py         # base vs trained 對照評測(Colab / 本機皆可)
-results/                 # 曲線圖、評測報告、逐題生成記錄
+eval/analyze_paired.py   # 不重跑模型，對逐題結果做 exact paired analysis
+results/                 # 曲線圖、評測報告、paired 統計、逐題生成記錄
 ```
 
 ## License
