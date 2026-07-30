@@ -29,6 +29,9 @@ hf_cache/
 .env
 .claude/
 
+# 私人筆記,不上 GitHub
+interview.md
+
 # OS
 .DS_Store
 Thumbs.db
