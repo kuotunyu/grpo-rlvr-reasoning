@@ -16,7 +16,23 @@
 
 逐題生成記錄:`results/eval_generations_base.jsonl`、`results/eval_generations_trained.jsonl`。
 
+## 逐題配對檢定
+
+由 `eval/analyze_paired.py` 對同一批 200 題進行雙尾 exact McNemar test：
+
+| 指標 | Base-only | GRPO-only | exact p |
+|---|---:|---:|---:|
+| Strict accuracy | 8 | 25 | 0.0046 |
+| Flexible accuracy | 10 | 17 | 0.2478（未達顯著） |
+| Soft format | 10 | 25 | 0.0167 |
+| Strict format | 3 | 144 | 5.94×10⁻³⁹ |
+
+GRPO − base 的平均輸出長度差為 −21.6 tokens，約略 95% CI
+[−32.4, −10.8]。完整固定案例與機器可讀數字見
+`results/paired_analysis.md`、`results/paired_analysis.json`。
+
 重新產生本報告:
 ```bash
-python eval/run_eval.py --trained-model <HF_USERNAME>/qwen2.5-3b-grpo-gsm8k
+python eval/run_eval.py --trained-model steven0226/qwen2.5-3b-grpo-gsm8k
+python eval/analyze_paired.py
 ```

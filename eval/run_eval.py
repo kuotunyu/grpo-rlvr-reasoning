@@ -4,7 +4,7 @@
 與訓練時同一份 regex 與數字比對,單一判分來源。
 
 用法(訓練完成後):
-    python eval/run_eval.py --trained-model <HF_USERNAME>/qwen2.5-3b-grpo-gsm8k
+    python eval/run_eval.py --trained-model steven0226/qwen2.5-3b-grpo-gsm8k
     # 或兩台機器分開跑、之後合併報告:
     python eval/run_eval.py --models base
     python eval/run_eval.py --models trained --trained-model .../qwen2.5-3b-grpo-gsm8k
@@ -293,7 +293,7 @@ def build_report(out_path, num_questions):
         "",
         "重新產生本報告:",
         "```bash",
-        "python eval/run_eval.py --trained-model <HF_USERNAME>/qwen2.5-3b-grpo-gsm8k",
+        "python eval/run_eval.py --trained-model steven0226/qwen2.5-3b-grpo-gsm8k",
         "```",
         "",
     ]
