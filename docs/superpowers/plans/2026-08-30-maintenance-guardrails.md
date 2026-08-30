@@ -687,59 +687,251 @@ Expected: every acceptance criterion in the approved design is visible in the re
 
 - [ ] **Step 4: Remove the exact completed worktree and maintenance branches**
 
-First confirm the PR is merged and origin/main contains its merge commit. Pin
-the exact repository and remote URL, inspect only the exact remote maintenance
-ref, and delete it only when it still exists. Then prune and assert that both
-the authoritative remote ref and its exact local remote-tracking ref are
-absent:
+First confirm the PR is merged and run this from the primary checkout. The
+script pins both fetch and push URLs, refreshes only the exact `origin/main`
+ref, uses an OID lease for the exact remote deletion, and removes only an exact
+stale remote-tracking ref. It then inventories tracked, untracked, and ignored
+worktree content before removing explicitly enumerated disposable task data:
 
 ~~~powershell
+$ErrorActionPreference = "Stop"
 $guardrailRepo = "D:\AI-Portfolio\CC_github部隊\RL_Github\1_GRPORLVR_推理訓練"
 $guardrailExpectedOrigin = "https://github.com/kuotunyu/grpo-rlvr-reasoning.git"
-$guardrailOriginUrl = git -C $guardrailRepo remote get-url origin
-if ($LASTEXITCODE -ne 0) { throw "Unable to resolve origin URL" }
-if (@($guardrailOriginUrl).Count -ne 1 -or $guardrailOriginUrl -ne $guardrailExpectedOrigin) { throw "Unexpected origin URL: $guardrailOriginUrl" }
-$guardrailRemoteRef = @(git -C $guardrailRepo ls-remote --heads origin refs/heads/maintenance/guardrails)
-if ($LASTEXITCODE -ne 0) { throw "Unable to inspect remote maintenance branch" }
-if ($guardrailRemoteRef.Count -gt 1) { throw "Expected at most one exact remote maintenance ref" }
-if ($guardrailRemoteRef.Count -eq 1) {
-    $guardrailRemoteRefParts = $guardrailRemoteRef[0] -split '\s+', 2
-    if ($guardrailRemoteRefParts.Count -ne 2 -or $guardrailRemoteRefParts[1] -ne "refs/heads/maintenance/guardrails") { throw "Unexpected remote ref: $($guardrailRemoteRef[0])" }
-    git -C $guardrailRepo push origin --delete maintenance/guardrails
-    if ($LASTEXITCODE -ne 0) { throw "Exact remote maintenance branch deletion failed" }
-} else {
-    "remote maintenance/guardrails already absent"
+$guardrailRemoteBranchRef = "refs/heads/maintenance/guardrails"
+$guardrailTrackingBranchRef = "refs/remotes/origin/maintenance/guardrails"
+$guardrailOriginMainRef = "refs/remotes/origin/main"
+$guardrailWorktreeBranchRef = "refs/heads/maintenance/guardrails"
+$guardrailPlanningBranchRef = "refs/heads/docs/maintenance-guardrails-spec"
+
+function Assert-GuardrailFullOid {
+    param([string]$Oid, [string]$Label)
+    if ($Oid -notmatch '\A[0-9a-f]{40}\z') { throw "$Label is not one full SHA-1 OID: $Oid" }
 }
-git -C $guardrailRepo fetch origin --prune
-if ($LASTEXITCODE -ne 0) { throw "Origin prune failed" }
-$guardrailRemoteRef = @(git -C $guardrailRepo ls-remote --heads origin refs/heads/maintenance/guardrails)
-if ($LASTEXITCODE -ne 0) { throw "Unable to verify remote maintenance branch absence" }
-if ($guardrailRemoteRef.Count -ne 0) { throw "Remote maintenance branch still exists" }
-git -C $guardrailRepo show-ref --verify --quiet refs/remotes/origin/maintenance/guardrails
-if ($LASTEXITCODE -eq 0) { throw "Stale origin/maintenance/guardrails tracking ref remains" }
-if ($LASTEXITCODE -ne 1) { throw "Unable to verify remote-tracking ref absence" }
-"remote maintenance branch and tracking ref absent"
+
+function Get-GuardrailWorktreeRecords {
+    $guardrailWorktreeLines = @(git -C $guardrailRepo worktree list --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw "Unable to read registered worktrees" }
+    $guardrailRecords = [Collections.Generic.List[object]]::new()
+    $guardrailRecord = $null
+    foreach ($guardrailLine in @($guardrailWorktreeLines) + @("")) {
+        if ($guardrailLine.StartsWith("worktree ", [StringComparison]::Ordinal)) {
+            if ($null -ne $guardrailRecord) { throw "Malformed worktree registry" }
+            $guardrailRecord = [ordered]@{ Path = $guardrailLine.Substring(9); Head = $null; Branch = $null }
+        } elseif ($guardrailLine -eq "") {
+            if ($null -ne $guardrailRecord) {
+                $guardrailRecords.Add([pscustomobject]$guardrailRecord)
+                $guardrailRecord = $null
+            }
+        } elseif ($null -eq $guardrailRecord) {
+            throw "Malformed worktree registry line: $guardrailLine"
+        } elseif ($guardrailLine.StartsWith("HEAD ", [StringComparison]::Ordinal)) {
+            if ($null -ne $guardrailRecord.Head) { throw "Duplicate worktree HEAD" }
+            $guardrailRecord.Head = $guardrailLine.Substring(5)
+        } elseif ($guardrailLine.StartsWith("branch ", [StringComparison]::Ordinal)) {
+            if ($null -ne $guardrailRecord.Branch) { throw "Duplicate worktree branch" }
+            $guardrailRecord.Branch = $guardrailLine.Substring(7)
+        } else {
+            throw "Unexpected worktree registry line: $guardrailLine"
+        }
+    }
+    return $guardrailRecords.ToArray()
+}
+
+function Remove-GuardrailDisposableDirectory {
+    param([string]$LiteralPath, [string]$WorktreePath)
+    $guardrailFullPath = [IO.Path]::GetFullPath($LiteralPath)
+    if (-not $guardrailFullPath.StartsWith($WorktreePath + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Disposable directory escaped worktree: $guardrailFullPath" }
+    if (-not (Test-Path -LiteralPath $guardrailFullPath)) { return }
+    $guardrailItem = Get-Item -LiteralPath $guardrailFullPath -Force
+    if (-not $guardrailItem.PSIsContainer -or ($guardrailItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Disposable path is not an ordinary directory: $guardrailFullPath" }
+    $guardrailAncestor = $guardrailItem
+    while (-not $guardrailAncestor.FullName.Equals($WorktreePath, [StringComparison]::OrdinalIgnoreCase)) {
+        if ($guardrailAncestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Reparse point in disposable path: $($guardrailAncestor.FullName)" }
+        $guardrailAncestor = $guardrailAncestor.Parent
+        if ($null -eq $guardrailAncestor) { throw "Disposable path escaped worktree ancestry" }
+    }
+    $guardrailDescendants = @(Get-ChildItem -LiteralPath $guardrailFullPath -Force -Recurse)
+    if (@($guardrailDescendants | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count -ne 0) { throw "Reparse point inside disposable directory: $guardrailFullPath" }
+    Remove-Item -LiteralPath $guardrailFullPath -Recurse
+    if (Test-Path -LiteralPath $guardrailFullPath) { throw "Disposable directory removal failed: $guardrailFullPath" }
+}
+
+function Assert-GuardrailMainExactAndClean {
+    param([string]$ExpectedOid)
+    $guardrailMainRefs = @(git -C $guardrailRepo symbolic-ref --quiet HEAD)
+    if ($LASTEXITCODE -ne 0 -or $guardrailMainRefs.Count -ne 1 -or $guardrailMainRefs[0] -ne "refs/heads/main") { throw "Primary checkout is not attached to main" }
+    $guardrailMainOids = @(git -C $guardrailRepo rev-parse --verify "HEAD^{commit}")
+    if ($LASTEXITCODE -ne 0 -or $guardrailMainOids.Count -ne 1) { throw "Unable to resolve primary main HEAD" }
+    Assert-GuardrailFullOid $guardrailMainOids[0] "primary main HEAD"
+    if ($guardrailMainOids[0] -ne $ExpectedOid) { throw "Primary main is not exact origin/main" }
+    $guardrailMainStatus = @(git -C $guardrailRepo status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0) { throw "Unable to inspect primary main status" }
+    if ($guardrailMainStatus.Count -ne 0) { throw "Primary main checkout is not clean" }
+}
+
+$guardrailFetchUrls = @(git -C $guardrailRepo remote get-url --all origin)
+if ($LASTEXITCODE -ne 0) { throw "Unable to resolve origin fetch URL" }
+if ($guardrailFetchUrls.Count -ne 1 -or $guardrailFetchUrls[0] -ne $guardrailExpectedOrigin) { throw "Unexpected origin fetch URLs: $($guardrailFetchUrls -join ', ')" }
+$guardrailPushUrls = @(git -C $guardrailRepo remote get-url --push --all origin)
+if ($LASTEXITCODE -ne 0) { throw "Unable to resolve origin push URL" }
+if ($guardrailPushUrls.Count -ne 1 -or $guardrailPushUrls[0] -ne $guardrailExpectedOrigin) { throw "Unexpected origin push URLs: $($guardrailPushUrls -join ', ')" }
+
+git -C $guardrailRepo fetch --no-tags --no-prune origin refs/heads/main:refs/remotes/origin/main
+if ($LASTEXITCODE -ne 0) { throw "Exact origin/main fetch failed" }
+$guardrailOriginMainOids = @(git -C $guardrailRepo rev-parse --verify "$guardrailOriginMainRef`^{commit}")
+if ($LASTEXITCODE -ne 0 -or $guardrailOriginMainOids.Count -ne 1) { throw "Unable to resolve exact origin/main commit" }
+$guardrailOriginMainOid = $guardrailOriginMainOids[0]
+Assert-GuardrailFullOid $guardrailOriginMainOid "origin/main"
+Assert-GuardrailMainExactAndClean $guardrailOriginMainOid
+
+$guardrailRemoteRefLines = @(git -C $guardrailRepo ls-remote --heads origin $guardrailRemoteBranchRef)
+if ($LASTEXITCODE -ne 0) { throw "Unable to inspect exact remote maintenance ref" }
+if ($guardrailRemoteRefLines.Count -gt 1) { throw "Expected at most one exact remote maintenance ref" }
+if ($guardrailRemoteRefLines.Count -eq 1) {
+    $guardrailRemoteRefParts = $guardrailRemoteRefLines[0] -split '\s+', 2
+    if ($guardrailRemoteRefParts.Count -ne 2 -or $guardrailRemoteRefParts[1] -ne $guardrailRemoteBranchRef) { throw "Unexpected remote ref: $($guardrailRemoteRefLines[0])" }
+    $guardrailRemoteOid = $guardrailRemoteRefParts[0]
+    Assert-GuardrailFullOid $guardrailRemoteOid "remote maintenance branch"
+    git -C $guardrailRepo cat-file -e "$guardrailRemoteOid`^{commit}"
+    if ($LASTEXITCODE -ne 0) { throw "Remote maintenance OID is not available as a local commit" }
+    git -C $guardrailRepo merge-base --is-ancestor $guardrailRemoteOid $guardrailOriginMainOid
+    if ($LASTEXITCODE -eq 1) { throw "Remote maintenance OID is not merged into exact origin/main" }
+    if ($LASTEXITCODE -ne 0) { throw "Unable to verify remote maintenance ancestry" }
+    git -C $guardrailRepo push "--force-with-lease=$guardrailRemoteBranchRef`:$guardrailRemoteOid" origin ":$guardrailRemoteBranchRef"
+    if ($LASTEXITCODE -ne 0) { throw "Leased exact remote maintenance deletion failed" }
+} else {
+    "remote maintenance/guardrails already absent; no push sent"
+}
+
+$guardrailRemoteRefLines = @(git -C $guardrailRepo ls-remote --heads origin $guardrailRemoteBranchRef)
+if ($LASTEXITCODE -ne 0) { throw "Unable to recheck exact remote maintenance ref" }
+if ($guardrailRemoteRefLines.Count -ne 0) { throw "Remote maintenance branch still exists" }
+$guardrailTrackingOids = @(git -C $guardrailRepo rev-parse --verify --quiet $guardrailTrackingBranchRef)
+$guardrailTrackingExit = $LASTEXITCODE
+if ($guardrailTrackingExit -eq 0) {
+    if ($guardrailTrackingOids.Count -ne 1) { throw "Unexpected tracking-ref OID count" }
+    $guardrailTrackingOid = $guardrailTrackingOids[0]
+    Assert-GuardrailFullOid $guardrailTrackingOid "origin maintenance tracking ref"
+    git -C $guardrailRepo update-ref -d $guardrailTrackingBranchRef $guardrailTrackingOid
+    if ($LASTEXITCODE -ne 0) { throw "Compare-and-delete of exact tracking ref failed" }
+} elseif ($guardrailTrackingExit -ne 1) {
+    throw "Unable to inspect exact tracking ref"
+} else {
+    "origin/maintenance/guardrails tracking ref already absent"
+}
+git -C $guardrailRepo show-ref --verify --quiet $guardrailTrackingBranchRef
+if ($LASTEXITCODE -eq 0) { throw "Exact maintenance tracking ref still exists" }
+if ($LASTEXITCODE -ne 1) { throw "Unable to assert tracking-ref absence" }
+
+$guardrailWorktreeRootPath = [IO.Path]::GetFullPath((Join-Path $guardrailRepo ".worktrees"))
+$guardrailWorktreePath = [IO.Path]::GetFullPath((Join-Path $guardrailWorktreeRootPath "maintenance-guardrails"))
+$guardrailWorktreeRootItem = Get-Item -LiteralPath $guardrailWorktreeRootPath -Force
+if (-not $guardrailWorktreeRootItem.PSIsContainer -or ($guardrailWorktreeRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw ".worktrees is not an ordinary directory" }
+if (-not $guardrailWorktreeRootItem.FullName.Equals($guardrailWorktreeRootPath, [StringComparison]::OrdinalIgnoreCase)) { throw "Unexpected .worktrees root" }
+$guardrailWorktreeItem = Get-Item -LiteralPath $guardrailWorktreePath -Force
+if (-not $guardrailWorktreeItem.PSIsContainer -or ($guardrailWorktreeItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Implementation worktree is not an ordinary directory" }
+if (-not $guardrailWorktreeItem.FullName.Equals($guardrailWorktreePath, [StringComparison]::OrdinalIgnoreCase)) { throw "Unexpected implementation worktree path" }
+if (-not $guardrailWorktreeItem.Parent.FullName.Equals($guardrailWorktreeRootPath, [StringComparison]::OrdinalIgnoreCase)) { throw "Implementation worktree escaped exact root" }
+
+$guardrailRegisteredWorktrees = @(Get-GuardrailWorktreeRecords)
+$guardrailRegisteredMatch = @($guardrailRegisteredWorktrees | Where-Object { [IO.Path]::GetFullPath($_.Path).Equals($guardrailWorktreePath, [StringComparison]::OrdinalIgnoreCase) })
+if ($guardrailRegisteredMatch.Count -ne 1) { throw "Expected one exact registered implementation worktree" }
+if ($guardrailRegisteredMatch[0].Branch -ne $guardrailWorktreeBranchRef) { throw "Implementation worktree is attached to an unexpected branch" }
+Assert-GuardrailFullOid $guardrailRegisteredMatch[0].Head "registered worktree HEAD"
+$guardrailWorktreeTopLevels = @(git -C $guardrailWorktreePath rev-parse --show-toplevel)
+if ($LASTEXITCODE -ne 0 -or $guardrailWorktreeTopLevels.Count -ne 1) { throw "Unable to resolve worktree top level" }
+if (-not [IO.Path]::GetFullPath($guardrailWorktreeTopLevels[0]).Equals($guardrailWorktreePath, [StringComparison]::OrdinalIgnoreCase)) { throw "Worktree top level is not the exact registered path" }
+$guardrailAttachedRefs = @(git -C $guardrailWorktreePath symbolic-ref --quiet HEAD)
+if ($LASTEXITCODE -ne 0 -or $guardrailAttachedRefs.Count -ne 1 -or $guardrailAttachedRefs[0] -ne $guardrailWorktreeBranchRef) { throw "Implementation worktree is not attached to the exact branch" }
+$guardrailWorktreeOids = @(git -C $guardrailWorktreePath rev-parse --verify "HEAD^{commit}")
+if ($LASTEXITCODE -ne 0 -or $guardrailWorktreeOids.Count -ne 1) { throw "Unable to capture implementation worktree HEAD" }
+$guardrailWorktreeOid = $guardrailWorktreeOids[0]
+Assert-GuardrailFullOid $guardrailWorktreeOid "implementation worktree HEAD"
+if ($guardrailWorktreeOid -ne $guardrailRegisteredMatch[0].Head) { throw "Registered and actual worktree HEAD differ" }
+git -C $guardrailRepo merge-base --is-ancestor $guardrailWorktreeOid $guardrailOriginMainOid
+if ($LASTEXITCODE -eq 1) { throw "Implementation worktree HEAD is not merged into exact origin/main" }
+if ($LASTEXITCODE -ne 0) { throw "Unable to verify implementation worktree ancestry" }
+
+$guardrailTrackedStatus = @(git -C $guardrailWorktreePath status --porcelain=v1 --untracked-files=no)
+if ($LASTEXITCODE -ne 0) { throw "Unable to inspect tracked worktree status" }
+if ($guardrailTrackedStatus.Count -ne 0) { throw "Implementation worktree has tracked changes" }
+$guardrailUntrackedPaths = @(git -C $guardrailWorktreePath ls-files --others --exclude-standard)
+if ($LASTEXITCODE -ne 0) { throw "Unable to inspect untracked worktree paths" }
+if ($guardrailUntrackedPaths.Count -ne 0) { throw "Unexpected untracked worktree paths: $($guardrailUntrackedPaths -join ', ')" }
+$guardrailIgnoredPaths = @(git -C $guardrailWorktreePath ls-files --others --ignored --exclude-standard)
+if ($LASTEXITCODE -ne 0) { throw "Unable to inspect ignored worktree paths" }
+$guardrailAllowedIgnoredExact = @(".superpowers/sdd/.gitignore")
+$guardrailAllowedIgnoredPrefixes = @(
+    ".superpowers/sdd/2026-08-30-maintenance-guardrails/",
+    ".pytest_cache/",
+    "__pycache__/",
+    "eval/__pycache__/",
+    "tests/__pycache__/"
+)
+foreach ($guardrailIgnoredPath in $guardrailIgnoredPaths) {
+    if ([IO.Path]::IsPathRooted($guardrailIgnoredPath)) { throw "Ignored path is unexpectedly rooted: $guardrailIgnoredPath" }
+    $guardrailIgnoredAllowed = $guardrailIgnoredPath -in $guardrailAllowedIgnoredExact
+    foreach ($guardrailAllowedPrefix in $guardrailAllowedIgnoredPrefixes) {
+        if ($guardrailIgnoredPath.StartsWith($guardrailAllowedPrefix, [StringComparison]::Ordinal)) { $guardrailIgnoredAllowed = $true }
+    }
+    if (-not $guardrailIgnoredAllowed) { throw "Unexpected ignored worktree path: $guardrailIgnoredPath" }
+}
+
+$guardrailDisposableDirectories = @(
+    (Join-Path $guardrailWorktreePath ".superpowers\sdd\2026-08-30-maintenance-guardrails"),
+    (Join-Path $guardrailWorktreePath ".pytest_cache"),
+    (Join-Path $guardrailWorktreePath "__pycache__"),
+    (Join-Path $guardrailWorktreePath "eval\__pycache__"),
+    (Join-Path $guardrailWorktreePath "tests\__pycache__")
+)
+foreach ($guardrailDisposableDirectory in $guardrailDisposableDirectories) {
+    Remove-GuardrailDisposableDirectory $guardrailDisposableDirectory $guardrailWorktreePath
+}
+$guardrailSddIgnorePath = [IO.Path]::GetFullPath((Join-Path $guardrailWorktreePath ".superpowers\sdd\.gitignore"))
+if (-not $guardrailSddIgnorePath.StartsWith($guardrailWorktreePath + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "SDD ignore marker escaped worktree" }
+if (Test-Path -LiteralPath $guardrailSddIgnorePath) {
+    $guardrailSddIgnoreItem = Get-Item -LiteralPath $guardrailSddIgnorePath -Force
+    if ($guardrailSddIgnoreItem.PSIsContainer -or ($guardrailSddIgnoreItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "SDD ignore marker is not an ordinary file" }
+    $guardrailSddIgnoreAncestor = $guardrailSddIgnoreItem.Parent
+    while (-not $guardrailSddIgnoreAncestor.FullName.Equals($guardrailWorktreePath, [StringComparison]::OrdinalIgnoreCase)) {
+        if ($guardrailSddIgnoreAncestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Reparse point in SDD ignore-marker ancestry: $($guardrailSddIgnoreAncestor.FullName)" }
+        $guardrailSddIgnoreAncestor = $guardrailSddIgnoreAncestor.Parent
+        if ($null -eq $guardrailSddIgnoreAncestor) { throw "SDD ignore marker escaped worktree ancestry" }
+    }
+    if ((Get-Content -LiteralPath $guardrailSddIgnorePath -Raw).Trim() -ne "*") { throw "Unexpected SDD ignore marker content" }
+    Remove-Item -LiteralPath $guardrailSddIgnorePath
+    if (Test-Path -LiteralPath $guardrailSddIgnorePath) { throw "SDD ignore marker removal failed" }
+}
+
+$guardrailFinalWorktreeStatus = @(git -C $guardrailWorktreePath status --porcelain=v1 --untracked-files=all --ignored=matching)
+if ($LASTEXITCODE -ne 0) { throw "Unable to perform final comprehensive worktree status" }
+if ($guardrailFinalWorktreeStatus.Count -ne 0) { throw "Worktree still has tracked, untracked, or ignored entries: $($guardrailFinalWorktreeStatus -join ', ')" }
+git -C $guardrailRepo worktree remove $guardrailWorktreePath
+if ($LASTEXITCODE -ne 0) { throw "Non-force exact worktree removal failed" }
+if (Test-Path -LiteralPath $guardrailWorktreePath) { throw "Exact implementation worktree path still exists" }
+$guardrailRegisteredWorktrees = @(Get-GuardrailWorktreeRecords)
+$guardrailRegisteredMatch = @($guardrailRegisteredWorktrees | Where-Object { [IO.Path]::GetFullPath($_.Path).Equals($guardrailWorktreePath, [StringComparison]::OrdinalIgnoreCase) })
+if ($guardrailRegisteredMatch.Count -ne 0) { throw "Exact implementation worktree is still registered" }
+
+git -C $guardrailRepo branch -d -- maintenance/guardrails
+if ($LASTEXITCODE -ne 0) { throw "Safe deletion of local maintenance branch failed" }
+git -C $guardrailRepo branch -d -- docs/maintenance-guardrails-spec
+if ($LASTEXITCODE -ne 0) { throw "Safe deletion of local planning branch failed" }
+foreach ($guardrailDeletedBranchRef in @($guardrailWorktreeBranchRef, $guardrailPlanningBranchRef)) {
+    git -C $guardrailRepo show-ref --verify --quiet $guardrailDeletedBranchRef
+    if ($LASTEXITCODE -eq 0) { throw "Exact local branch still exists: $guardrailDeletedBranchRef" }
+    if ($LASTEXITCODE -ne 1) { throw "Unable to assert local branch absence: $guardrailDeletedBranchRef" }
+}
+
+Assert-GuardrailMainExactAndClean $guardrailOriginMainOid
+"exact maintenance cleanup verified"
 ~~~
 
-Then resolve and verify that the implementation worktree path is under the
-repository's .worktrees directory and that it is clean. Run:
-
-~~~powershell
-$guardrailWorktreeRoot = Resolve-Path -LiteralPath "$guardrailRepo\.worktrees"
-$guardrailWorktree = Resolve-Path -LiteralPath "$guardrailRepo\.worktrees\maintenance-guardrails"
-if (-not $guardrailWorktree.Path.StartsWith($guardrailWorktreeRoot.Path + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Worktree escaped intended root" }
-if (git -C $guardrailWorktree.Path status --porcelain) { throw "Implementation worktree is not clean" }
-git -C $guardrailRepo worktree remove "$($guardrailWorktree.Path)"
-git -C $guardrailRepo worktree prune
-git -C $guardrailRepo branch -d maintenance/guardrails
-git -C $guardrailRepo branch -d docs/maintenance-guardrails-spec
-git -C $guardrailRepo worktree list
-git -C $guardrailRepo status --short
-~~~
-
-The -d form must remain lowercase so Git refuses to delete an unmerged branch.
-Do not replace these exact operations with wildcard ref deletion, git clean,
-recursive filesystem deletion, forced worktree removal, or git branch -D.
+The `-d` forms must remain lowercase so Git refuses to delete an unmerged
+branch. Do not replace the exact commands with wildcard ref deletion, broad
+fetch/prune or worktree prune, `git clean`, forced worktree removal,
+`git branch -D`, globbed paths, or recursive deletion outside the explicitly
+enumerated and boundary-checked disposable directories above.
 
 Expected: main checkout remains at origin/main; no maintenance branches, user
 files, or unrelated repositories are removed.
