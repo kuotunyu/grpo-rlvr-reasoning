@@ -797,6 +797,13 @@ $guardrailFetchedMainOids = @(git -C $guardrailRepo rev-parse --verify "FETCH_HE
 if ($LASTEXITCODE -ne 0 -or $guardrailFetchedMainOids.Count -ne 1) { throw "Unable to resolve fetched main commit" }
 $guardrailFetchedMainOid = $guardrailFetchedMainOids[0]
 Assert-GuardrailFullOid $guardrailFetchedMainOid "fetched main"
+git -C $guardrailRepo merge-base --is-ancestor $guardrailObservedOriginMainOid $guardrailFetchedMainOid
+$guardrailFastForwardExit = $LASTEXITCODE
+if ($guardrailFastForwardExit -eq 1) {
+    throw "Fetched main is not a fast-forward of observed origin/main"
+} elseif ($guardrailFastForwardExit -ne 0) {
+    throw "Unable to verify fetched main is a fast-forward of observed origin/main"
+}
 git -C $guardrailRepo update-ref --no-deref $guardrailOriginMainRef $guardrailFetchedMainOid $guardrailObservedOriginMainOid
 if ($LASTEXITCODE -ne 0) { throw "Concurrent-safe exact origin/main update failed" }
 $guardrailRemainingOriginMainSymrefTargets = @(git -C $guardrailRepo symbolic-ref --quiet $guardrailOriginMainRef)
