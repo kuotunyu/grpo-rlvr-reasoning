@@ -10,6 +10,11 @@
 - 模型:🤗 [qwen2.5-3b-grpo-gsm8k](https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k)(merged 16bit)/
   [qwen2.5-3b-grpo-gsm8k-lora](https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k-lora)(LoRA adapter)
 
+> **授權邊界:**GitHub 原始碼並不替模型權重授權。Qwen2.5-3B base、merged 模型與
+> LoRA adapter 均受 [Qwen Research License](LICENSES/QWEN-RESEARCH-LICENSE.txt)約束,
+> 僅供非商業研究與評估;GSM8K 題目則依 OpenAI MIT License 散布。詳見
+> [第三方聲明](THIRD_PARTY_NOTICES.md)。
+
 > **English TL;DR** — GRPO/RLVR fine-tuning of Qwen2.5-3B on GSM8K using only
 > programmatically verifiable rewards. On the same 200 test problems, strict accuracy improved
 > from **70.5% to 79.0%** (paired exact McNemar `p=0.0046`) and strict format adherence from
@@ -71,7 +76,8 @@ reward hacking 模式。
 
 這點特別驗證過,不是隨口說說:先訓 500 步觀察到這個現象後,**從同一個 checkpoint
 續訓到 1000 步**,結果幾乎完全重現(strict format 遵循率兩次都是 90.0%,長度分布
-也幾乎一致)—— 排除了「還沒訓夠久」的可能性。比較合理的解釋是:本專案的獎勵函數
+也幾乎一致)—— 降低了「500 步還看不到」的疑慮,但不外推到更長訓練或其他設定。
+比較合理的解釋是:本專案的獎勵函數
 從未直接獎勵「長度」本身,只獎勵答對與格式對;GSM8K 對 Qwen2.5-3B-Instruct 這個
 規模的模型來說,也還沒難到需要更長的推理鏈才能算對。
 
@@ -92,8 +98,9 @@ token**(以 base 模型答錯的題目當難度 proxy,trained 模型在這些難
 python eval/analyze_paired.py
 ```
 
-訓練**只用 train split(7,473 題)**;test split 在訓練管線中零接觸
-(notebook 內有程式級 assert),只在評測時使用 —— 無資料污染。
+訓練**只用 train split(7,473 題)**;notebook 只呼叫 `split="train"`,test split
+僅由獨立的評測程式載入。已提交評測使用 test 前 200 題,逐題資料來源、MIT notice、
+固定 revision、SHA-256 與可重現性限制見 [results provenance](results/README.md)。
 
 ## 如何執行
 
@@ -101,7 +108,9 @@ python eval/analyze_paired.py
 
 ```bash
 pip install pytest
-python -m pytest tests/ -v        # 63 個測試全綠
+python -m pytest tests/ -v
+python eval/verify_results.py     # 雜湊、schema、配對與 metrics 一致性
+python eval/analyze_paired.py     # 不跑模型,重建配對統計
 ```
 
 ### 1. Colab 訓練
@@ -113,8 +122,9 @@ python -m pytest tests/ -v        # 63 個測試全綠
 3. **SMOKE_TEST 跑通**:保持 `SMOKE_TEST = True` → Run all(約 15–20 分鐘),
    確認安裝、模型載入、Drive checkpoint、samples/metrics 記錄、畫圖全鏈路無誤。
 4. **正式訓練(背景執行)**:改 `SMOKE_TEST = False` → Run all → 直接關閉分頁。
-   Colab Pro+ 會在背景繼續跑(500 步約 4–7 小時);結束時自動 push 兩個 HF repo,
-   **伺服器端驗證 push 成功後**自動 `runtime.unassign()` 釋放機器停止扣點。
+   Colab Pro+ 會在背景繼續跑(500 步約 4–7 小時);結束時會先檢查既有 HF repo,
+   再建立兩個 **release PR candidate**。candidate revision 通過 artifact gate 後自動
+   `runtime.unassign()` 釋放機器;不會自動 merge 或直寫 default branch。
 5. **斷線續跑**:若背景 session 被提早收走,重新連 L4 → 設 `RESUME = True` → Run all,
    會從 Drive 最新有效 checkpoint(每 100 步存一份)接著訓練。
 6. **延長訓練**:想在既有 checkpoint 上訓更多步(例如觀察長度是否會在更後期成長):
@@ -139,6 +149,10 @@ python eval/run_eval.py --models trained --adapter /path/to/checkpoint-1000
 ```
 
 產出 `results/eval_report.md` 與逐題生成記錄,commit 回本 repo 即完成。
+預設命令固定 GSM8K、base model 與已發布 trained weights 的 revision;`do_sample=False`
+關閉抽樣隨機性,但不同 CUDA、PyTorch、Transformers 或 tokenizer 環境仍不保證 bitwise
+相同輸出。原始 2026-07 評測未完整記錄套件版本,因此本 repo 對既有證據宣稱的是
+**可稽核與可重算統計**,不是跨環境逐 byte 重生成保證。
 
 ## 選配:A100 + 7B 旗艦版
 
@@ -160,13 +174,27 @@ L4 + 3B 是成本甜蜜點;想上 7B 只要改 notebook 的 PARAMS cell:
 
 ```
 rewards.py               # SYSTEM_PROMPT + 抽取 helpers + 4 個獎勵函數(唯一事實來源)
-tests/                   # 63 個單元測試(獎勵函數 + paired analysis)
-train_grpo_colab.ipynb   # Colab 訓練 notebook(SMOKE_TEST / RESUME / 自動 push / 自動釋放)
+tests/                   # 獎勵函數、paired analysis、release 與 provenance 測試
+train_grpo_colab.ipynb   # Colab 訓練 notebook(SMOKE_TEST / RESUME / HF PR gate / 自動釋放)
 eval/run_eval.py         # base vs trained 對照評測(Colab / 本機皆可)
 eval/analyze_paired.py   # 不重跑模型，對逐題結果做 exact paired analysis
-results/                 # 曲線圖、評測報告、paired 統計、逐題生成記錄
+eval/verify_results.py   # 離線驗證 committed evidence 的雜湊、schema 與 metrics
+hf_release.py            # HF card 授權 metadata 與 merged/LoRA 檔案面 gate
+results/                 # 曲線圖、provenance、paired 統計、逐題生成記錄
+docs/huggingface/        # 唯讀 artifact audit 與待審的 HF 遠端修復方案
+LICENSES/                # GSM8K MIT、Unsloth LGPL、Qwen Research License
 ```
 
-## License
+## License 與第三方內容
 
-[Apache-2.0](LICENSE)
+- 原創程式、文件、測試與 assets: [Apache-2.0](LICENSE)。
+- `rewards.py` 與 `train_grpo_colab.ipynb`:修改自 UnslothAI GRPO notebook,
+  依 [LGPL-3.0](LICENSES/UNSLOTH-NOTEBOOKS-LGPL-3.0.txt)散布。
+- `results/eval_generations_*.jsonl` 內的 GSM8K 題目:Copyright (c) 2021 OpenAI,
+  [MIT License](LICENSES/GSM8K-MIT.txt);引用 Cobbe et al. (2021),
+  *Training Verifiers to Solve Math Word Problems*, arXiv:2110.14168。
+- Hugging Face 的 base/merged/LoRA 模型 artifact:
+  [Qwen Research License](LICENSES/QWEN-RESEARCH-LICENSE.txt),非 Apache-2.0。
+
+完整適用範圍、修改聲明與 redistribution notice 見
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

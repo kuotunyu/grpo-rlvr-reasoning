@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-08-30",
+  "mode": "read-only",
+  "upstream_qwen": {
+    "repo_id": "Qwen/Qwen2.5-3B-Instruct",
+    "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "license": "qwen-research",
+    "license_sha256": "ef52482bb785733093dc9a2e8edd8e764c77d12d8e9d8f10a80c9b547d32d0f9"
+  },
+  "repositories": {
+    "merged": {
+      "repo_id": "steven0226/qwen2.5-3b-grpo-gsm8k",
+      "observed_head": "b4ff4e0d1555d1e839c49987c0c6e3bf926b6807",
+      "weight_complete_commit": "916d51042e6e660b2b652f1442ea32f511aa4cca",
+      "card_declares": "apache-2.0",
+      "license_file_present": false,
+      "notice_file_present": false,
+      "artifacts": {
+        "model-00001-of-00002.safetensors": {
+          "size": 3968658944,
+          "sha256": "d2dcf9ca2f97b66a4e5cf1a911622b8813f50084b208c61e973c22f98595e914"
+        },
+        "model-00002-of-00002.safetensors": {
+          "size": 2203268048,
+          "sha256": "46679263bf86bfb9112073fe2b92d7ea2723e5c53570552cf6bcf2264d523530"
+        },
+        "model.safetensors.index.json": {
+          "tensor_bytes": 6171877376
+        }
+      },
+      "finding": "The repository is a complete BF16 merged model, but its card and missing license/notice files misstate the Qwen redistribution boundary."
+    },
+    "lora": {
+      "repo_id": "steven0226/qwen2.5-3b-grpo-gsm8k-lora",
+      "observed_head": "73b8b3884278aa7a32e10d994077d96ae57f4102",
+      "card_declares": "apache-2.0",
+      "license_file_present": false,
+      "notice_file_present": false,
+      "adapter": {
+        "adapter_model.safetensors": {
+          "size": 119802032,
+          "sha256": "20d9772ee4f9bfb3279aaa60a499f121709bcc0db72e2b3e163edd9080c10d9f",
+          "dtype": "BF16",
+          "tensor_count": 504,
+          "rank": 32,
+          "target_module_count_per_layer": 7,
+          "layer_count": 36
+        },
+        "peft_version": "0.19.1",
+        "declared_base_model": "unsloth/Qwen2.5-3B-Instruct-unsloth-bnb-4bit"
+      },
+      "stale_merged_artifacts": {
+        "source_commit": "79e740b9639e9e7055c039cda3a72afcb4f91225",
+        "model-00001-of-00002.safetensors": {
+          "size": 3968658944,
+          "sha256": "d4b27a352e6aa5f2273bc05366ea2e20f010490894921abe547718ee1305ed1f"
+        },
+        "model-00002-of-00002.safetensors": {
+          "size": 2203268048,
+          "sha256": "21b6223478ba4c670501584d12683864c0018af98e7201a44f84ea3d42c0415f"
+        },
+        "model.safetensors.index.json": {
+          "present": true
+        }
+      },
+      "finding": "The current adapter is the intended 1000-step LoRA, while the three model.* artifacts are an older 500-step full merge left by the initial upload. The repository therefore has an unsafe mixed artifact surface."
+    }
+  },
+  "remote_changes_performed": []
+}

@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: LGPL-3.0-only
+# Adapted from UnslothAI's Qwen2.5 3B GRPO notebook at revision
+# ff0685ab2c1d604f5605ace8652aa42c1e6bb10b. Modified in 2026 to add robust
+# numeric parsing, multiline-format handling, pure functions, and stable tests.
+
 """GSM8K GRPO(RLVR)訓練用:答案抽取 helpers + 4 個 reward functions。
 
 此模組是整個專案的單一事實來源(single source of truth):

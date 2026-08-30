@@ -20,6 +20,7 @@
 import argparse
 import datetime
 import gc
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -38,17 +39,32 @@ from rewards import (  # noqa: E402  (純 stdlib,不需要 GPU 環境)
 )
 
 RESULTS_DIR = ROOT / "results"
+DEFAULT_BASE_MODEL = "Qwen/Qwen2.5-3B-Instruct"
+DEFAULT_BASE_REVISION = "aa8e72537993ba99e69dfaafa59ed015b17504d1"
+DEFAULT_DATASET_REVISION = "740312add88f781978c0658806c59bc2815b9866"
+DEFAULT_TRAINED_MODEL = "steven0226/qwen2.5-3b-grpo-gsm8k"
+DEFAULT_TRAINED_WEIGHT_REVISION = "916d51042e6e660b2b652f1442ea32f511aa4cca"
+DATASET_ID = "openai/gsm8k"
+DATASET_CONFIG = "main"
 
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--base-model", default="Qwen/Qwen2.5-3B-Instruct")
+    p.add_argument("--base-model", default=DEFAULT_BASE_MODEL)
+    p.add_argument("--base-revision", default=DEFAULT_BASE_REVISION,
+                   help="base 模型 revision;預設固定到原始評測可用的 commit")
+    p.add_argument("--dataset-revision", default=DEFAULT_DATASET_REVISION,
+                   help="openai/gsm8k dataset revision")
     p.add_argument("--trained-model", default=None,
                    help="merged 模型的 HF repo id;省略時嘗試用 HF token 的 whoami 推得 "
                         "<user>/qwen2.5-3b-grpo-gsm8k")
+    p.add_argument("--trained-revision", default=None,
+                   help="merged 模型 revision;預設模型會自動固定到評測使用的權重 commit")
     p.add_argument("--adapter", default=None,
                    help="LoRA adapter 路徑或 repo id;指定時 trained = base + adapter"
                         "(可直接評 Drive 上的 checkpoint,不必先 merge)")
+    p.add_argument("--adapter-revision", default=None,
+                   help="adapter repo revision;本機路徑可省略")
     p.add_argument("--models", choices=["both", "base", "trained"], default="both")
     p.add_argument("--num-questions", type=int, default=200)
     p.add_argument("--max-new-tokens", type=int, default=768)
@@ -80,6 +96,15 @@ def resolve_trained_repo(args):
         )
 
 
+def resolve_model_revision(model_id, requested_revision):
+    """Pin the published trained model while allowing custom model ids."""
+    if requested_revision:
+        return requested_revision
+    if model_id == DEFAULT_TRAINED_MODEL:
+        return DEFAULT_TRAINED_WEIGHT_REVISION
+    return None
+
+
 def pick_dtype(name):
     import torch
 
@@ -90,7 +115,14 @@ def pick_dtype(name):
     return {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[name]
 
 
-def load_model(model_id, adapter, dtype, load_in_4bit):
+def load_model(
+    model_id,
+    model_revision,
+    adapter,
+    adapter_revision,
+    dtype,
+    load_in_4bit,
+):
     import torch  # noqa: F401
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -101,25 +133,31 @@ def load_model(model_id, adapter, dtype, load_in_4bit):
         kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_compute_dtype=dtype
         )
-    model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, revision=model_revision, **kwargs
+    )
     if adapter:
         from peft import PeftModel
 
-        model = PeftModel.from_pretrained(model, adapter)
+        model = PeftModel.from_pretrained(
+            model, adapter, revision=adapter_revision
+        )
     model.eval()
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=model_revision)
     tokenizer.padding_side = "left"  # decoder-only 的 batch 生成必須左 padding
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return model, tokenizer
 
 
-def load_questions(n):
+def load_questions(n, revision=DEFAULT_DATASET_REVISION):
     from datasets import load_dataset
 
     # 唯一允許接觸 gsm8k test split 的地方(訓練管線零接觸)
-    ds = load_dataset("openai/gsm8k", "main", split="test").select(range(n))
+    ds = load_dataset(
+        "openai/gsm8k", "main", split="test", revision=revision
+    ).select(range(n))
     return [(x["question"], x["answer"]) for x in ds]
 
 
@@ -138,14 +176,31 @@ def grade(text, gold_raw):
     }
 
 
-def evaluate_model(tag, model_id, adapter, questions, args):
+def evaluate_model(
+    tag,
+    model_id,
+    model_revision,
+    adapter,
+    adapter_revision,
+    questions,
+    args,
+):
     import torch
 
     dtype = pick_dtype(args.dtype)
-    label = f"{model_id}" + (f" + adapter {adapter}" if adapter else "")
+    label = f"{model_id}@{model_revision or 'main'}"
+    if adapter:
+        label += f" + adapter {adapter}@{adapter_revision or 'main'}"
     print(f"\n===== 評測 [{tag}] {label}(dtype={dtype},greedy,"
           f"max_new_tokens={args.max_new_tokens})=====")
-    model, tokenizer = load_model(model_id, adapter, dtype, args.load_in_4bit)
+    model, tokenizer = load_model(
+        model_id,
+        model_revision,
+        adapter,
+        adapter_revision,
+        dtype,
+        args.load_in_4bit,
+    )
     eos_id = tokenizer.eos_token_id
 
     records = []
@@ -167,7 +222,7 @@ def evaluate_model(tag, model_id, adapter, questions, args):
             out = model.generate(
                 **enc,
                 max_new_tokens=args.max_new_tokens,
-                do_sample=False,           # greedy,完全 deterministic
+                do_sample=False,           # greedy;關閉抽樣,但跨軟硬體不保證 bitwise 相同
                 temperature=None,
                 top_p=None,
                 top_k=None,
@@ -191,6 +246,16 @@ def evaluate_model(tag, model_id, adapter, questions, args):
     metrics = {
         "tag": tag,
         "model": label,
+        "model_revision": model_revision,
+        "adapter_revision": adapter_revision,
+        "dataset": DATASET_ID,
+        "dataset_config": DATASET_CONFIG,
+        "dataset_revision": args.dataset_revision,
+        "dataset_selection": f"first {n} rows in dataset order",
+        "decoding": "greedy",
+        "system_prompt_sha256": hashlib.sha256(
+            SYSTEM_PROMPT.encode("utf-8")
+        ).hexdigest(),
         "num_questions": n,
         "strict_accuracy": sum(r["strict_correct"] for r in records) / n,
         "flexible_accuracy": sum(r["flexible_correct"] for r in records) / n,
@@ -198,6 +263,7 @@ def evaluate_model(tag, model_id, adapter, questions, args):
         "strict_format_rate": sum(r["strict_format"] for r in records) / n,
         "mean_output_tokens": sum(r["n_tokens"] for r in records) / n,
         "max_new_tokens": args.max_new_tokens,
+        "batch_size": args.batch_size,
         "dtype": str(dtype),
         "load_in_4bit": bool(args.load_in_4bit),
         "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -224,6 +290,48 @@ def fmt_pct(x):
     return f"{x:.1%}"
 
 
+def comparability_differences(base, trained, *, results_dir=RESULTS_DIR):
+    """Return fields that prevent a defensible base-vs-trained comparison."""
+    fields = (
+        "dataset",
+        "dataset_config",
+        "dataset_revision",
+        "dataset_selection",
+        "num_questions",
+        "decoding",
+        "system_prompt_sha256",
+        "max_new_tokens",
+        "batch_size",
+        "dtype",
+        "load_in_4bit",
+    )
+    differences = [field for field in fields if base.get(field) != trained.get(field)]
+
+    paths = {
+        tag: Path(results_dir) / f"eval_generations_{tag}.jsonl"
+        for tag in ("base", "trained")
+    }
+    if not all(path.is_file() for path in paths.values()):
+        differences.append("paired_generation_records")
+        return differences
+    try:
+        identities = {}
+        for tag, path in paths.items():
+            identities[tag] = [
+                (row["idx"], row["question"], row["gold"])
+                for row in (
+                    json.loads(line)
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                )
+            ]
+        if identities["base"] != identities["trained"]:
+            differences.append("paired_generation_records")
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        differences.append("paired_generation_records")
+    return differences
+
+
 def build_report(out_path, num_questions):
     """從 results/eval_metrics_*.json 組報告 —— base/trained 可以分次、分機器跑。"""
     loaded = {}
@@ -236,16 +344,12 @@ def build_report(out_path, num_questions):
     comparable = True
     warn = None
     if "base" in loaded and "trained" in loaded:
-        diffs = [
-            k for k in ("num_questions", "max_new_tokens")
-            if loaded["base"].get(k) != loaded["trained"].get(k)
-        ]
+        diffs = comparability_differences(loaded["base"], loaded["trained"])
         if diffs:
             comparable = False
             warn = (
-                f"> ⚠️ base 與 trained 的評測設定不一致({', '.join(diffs)}:"
-                f"base={[loaded['base'].get(k) for k in diffs]},"
-                f"trained={[loaded['trained'].get(k) for k in diffs]}),"
+                f"> ⚠️ base 與 trained 的評測設定或逐題身分不一致"
+                f"({', '.join(diffs)}),"
                 "Δ 欄不予計算 —— 請用相同參數重跑其中一邊。"
             )
 
@@ -309,16 +413,44 @@ def main():
     questions = None
 
     if args.models in ("both", "base"):
-        questions = load_questions(args.num_questions)
-        evaluate_model("base", args.base_model, None, questions, args)
+        questions = load_questions(args.num_questions, revision=args.dataset_revision)
+        evaluate_model(
+            "base",
+            args.base_model,
+            args.base_revision,
+            None,
+            None,
+            questions,
+            args,
+        )
 
     if args.models in ("both", "trained"):
         if questions is None:
-            questions = load_questions(args.num_questions)
+            questions = load_questions(args.num_questions, revision=args.dataset_revision)
         if args.adapter:
-            evaluate_model("trained", args.base_model, args.adapter, questions, args)
+            evaluate_model(
+                "trained",
+                args.base_model,
+                args.base_revision,
+                args.adapter,
+                args.adapter_revision,
+                questions,
+                args,
+            )
         else:
-            evaluate_model("trained", resolve_trained_repo(args), None, questions, args)
+            trained_model = resolve_trained_repo(args)
+            trained_revision = resolve_model_revision(
+                trained_model, args.trained_revision
+            )
+            evaluate_model(
+                "trained",
+                trained_model,
+                trained_revision,
+                None,
+                None,
+                questions,
+                args,
+            )
 
     build_report(args.out, args.num_questions)
 

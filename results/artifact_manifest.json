@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "evaluation": {
+    "dataset": "openai/gsm8k",
+    "config": "main",
+    "split": "test",
+    "selection": "first 200 rows in dataset order",
+    "num_questions": 200,
+    "dataset_revision_available_at_run": "740312add88f781978c0658806c59bc2815b9866",
+    "canonical_source": "https://github.com/openai/grade-school-math/blob/3101c7d5072418e28b9008a6636bde82a006892c/grade_school_math/data/test.jsonl",
+    "canonical_source_sha256": "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14",
+    "base_model": "Qwen/Qwen2.5-3B-Instruct",
+    "base_model_revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+    "trained_model": "steven0226/qwen2.5-3b-grpo-gsm8k",
+    "trained_weight_revision": "916d51042e6e660b2b652f1442ea32f511aa4cca",
+    "decoding": "greedy",
+    "max_new_tokens": 768,
+    "note": "The original run did not record dependency versions or resolved revisions. The revisions above identify the unchanged source data/base model available at run time and the exact trained weights uploaded before evaluation."
+  },
+  "artifacts": [
+    {
+      "path": "results/eval_generations_base.jsonl",
+      "bytes": 279394,
+      "sha256": "70ede02f647a5b670c7c9eead358fe1bcc2715ae0e6cd0fe5ef9ea4dc6756601"
+    },
+    {
+      "path": "results/eval_generations_trained.jsonl",
+      "bytes": 258389,
+      "sha256": "ef2e13fea93943c869c3dcb7fe0e6e7a00b27dd0ae6b122c78caac9017d79092"
+    },
+    {
+      "path": "results/eval_metrics_base.json",
+      "bytes": 369,
+      "sha256": "cef154ae4bbcaad79d066d286c0e248dfd38911fb6452cdd97583e7adb1d70be"
+    },
+    {
+      "path": "results/eval_metrics_trained.json",
+      "bytes": 378,
+      "sha256": "3dc4f930b070b0b15959d43416bcf3fc5c74decc36aa6dbfb1b587013bb3efb7"
+    },
+    {
+      "path": "results/eval_report.md",
+      "bytes": 1548,
+      "sha256": "d688be4beb0186f71d9a306d7f279982412fe1eba732f0c5556546e5e41174d7"
+    },
+    {
+      "path": "results/figs/completion_length_curve.png",
+      "bytes": 157868,
+      "sha256": "d0e00f65e8e1ec32c5d1c15e4991308aca28924cd42b925003be3c4d676aee5a"
+    },
+    {
+      "path": "results/figs/reward_curve.png",
+      "bytes": 153523,
+      "sha256": "c58dcff9be557881b75ea65bcab6559cda17b485c59d8e2dbde801d2e95a1126"
+    },
+    {
+      "path": "results/paired_analysis.json",
+      "bytes": 3809,
+      "sha256": "5d09cce96398d94897e534bc3c3bf0e619185126dcc221312c4d5a633e7630b8"
+    },
+    {
+      "path": "results/paired_analysis.md",
+      "bytes": 3638,
+      "sha256": "1d7683df9af7b8aaac79678177c1116d24f258f71fe2b26d0a0178907e7cd47d"
+    }
+  ]
+}
