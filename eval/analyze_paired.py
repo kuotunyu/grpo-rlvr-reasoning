@@ -258,15 +258,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def write_text_lf(path: Path, text: str) -> None:
+    """Write deterministic LF bytes on Windows and POSIX."""
+    with path.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(text)
+
+
 def main() -> None:
     args = parse_args()
     analysis = analyze(load_jsonl(args.base), load_jsonl(args.trained))
     args.out_md.parent.mkdir(parents=True, exist_ok=True)
     args.out_json.parent.mkdir(parents=True, exist_ok=True)
-    args.out_md.write_text(build_markdown(analysis), encoding="utf-8")
-    args.out_json.write_text(
+    write_text_lf(args.out_md, build_markdown(analysis))
+    write_text_lf(
+        args.out_json,
         json.dumps(analysis, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
     )
     print(f"Wrote {args.out_md} and {args.out_json}")
 

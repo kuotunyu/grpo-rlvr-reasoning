@@ -1,8 +1,14 @@
 import math
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from eval.analyze_paired import analyze, exact_mcnemar, validate_pairs
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _row(idx, *, strict, tokens=10):
@@ -54,3 +60,29 @@ def test_analyze_reports_paired_token_delta():
     strict = result["metrics"]["strict_correct"]
     assert strict["base_rate"] == 0.5
     assert strict["trained_rate"] == 1.0
+
+
+def test_cli_writes_platform_independent_lf_artifacts(tmp_path):
+    out_md = tmp_path / "paired.md"
+    out_json = tmp_path / "paired.json"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "eval" / "analyze_paired.py"),
+            "--base",
+            str(ROOT / "results" / "eval_generations_base.jsonl"),
+            "--trained",
+            str(ROOT / "results" / "eval_generations_trained.jsonl"),
+            "--out-md",
+            str(out_md),
+            "--out-json",
+            str(out_json),
+        ],
+        check=True,
+    )
+
+    for path in (out_md, out_json):
+        payload = path.read_bytes()
+        assert b"\r\n" not in payload
+        assert payload.endswith(b"\n")
