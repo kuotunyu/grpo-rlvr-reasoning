@@ -687,19 +687,44 @@ Expected: every acceptance criterion in the approved design is visible in the re
 
 - [ ] **Step 4: Remove the exact completed worktree and maintenance branches**
 
-First confirm the PR is merged and origin/main contains its merge commit. Delete
-only the exact remote maintenance/guardrails branch:
+First confirm the PR is merged and origin/main contains its merge commit. Pin
+the exact repository and remote URL, inspect only the exact remote maintenance
+ref, and delete it only when it still exists. Then prune and assert that both
+the authoritative remote ref and its exact local remote-tracking ref are
+absent:
 
 ~~~powershell
-git ls-remote --heads origin refs/heads/maintenance/guardrails
-git push origin --delete maintenance/guardrails
+$guardrailRepo = "D:\AI-Portfolio\CC_github部隊\RL_Github\1_GRPORLVR_推理訓練"
+$guardrailExpectedOrigin = "https://github.com/kuotunyu/grpo-rlvr-reasoning.git"
+$guardrailOriginUrl = git -C $guardrailRepo remote get-url origin
+if ($LASTEXITCODE -ne 0) { throw "Unable to resolve origin URL" }
+if (@($guardrailOriginUrl).Count -ne 1 -or $guardrailOriginUrl -ne $guardrailExpectedOrigin) { throw "Unexpected origin URL: $guardrailOriginUrl" }
+$guardrailRemoteRef = @(git -C $guardrailRepo ls-remote --heads origin refs/heads/maintenance/guardrails)
+if ($LASTEXITCODE -ne 0) { throw "Unable to inspect remote maintenance branch" }
+if ($guardrailRemoteRef.Count -gt 1) { throw "Expected at most one exact remote maintenance ref" }
+if ($guardrailRemoteRef.Count -eq 1) {
+    $guardrailRemoteRefParts = $guardrailRemoteRef[0] -split '\s+', 2
+    if ($guardrailRemoteRefParts.Count -ne 2 -or $guardrailRemoteRefParts[1] -ne "refs/heads/maintenance/guardrails") { throw "Unexpected remote ref: $($guardrailRemoteRef[0])" }
+    git -C $guardrailRepo push origin --delete maintenance/guardrails
+    if ($LASTEXITCODE -ne 0) { throw "Exact remote maintenance branch deletion failed" }
+} else {
+    "remote maintenance/guardrails already absent"
+}
+git -C $guardrailRepo fetch origin --prune
+if ($LASTEXITCODE -ne 0) { throw "Origin prune failed" }
+$guardrailRemoteRef = @(git -C $guardrailRepo ls-remote --heads origin refs/heads/maintenance/guardrails)
+if ($LASTEXITCODE -ne 0) { throw "Unable to verify remote maintenance branch absence" }
+if ($guardrailRemoteRef.Count -ne 0) { throw "Remote maintenance branch still exists" }
+git -C $guardrailRepo show-ref --verify --quiet refs/remotes/origin/maintenance/guardrails
+if ($LASTEXITCODE -eq 0) { throw "Stale origin/maintenance/guardrails tracking ref remains" }
+if ($LASTEXITCODE -ne 1) { throw "Unable to verify remote-tracking ref absence" }
+"remote maintenance branch and tracking ref absent"
 ~~~
 
 Then resolve and verify that the implementation worktree path is under the
 repository's .worktrees directory and that it is clean. Run:
 
 ~~~powershell
-$guardrailRepo = "D:\AI-Portfolio\CC_github部隊\RL_Github\1_GRPORLVR_推理訓練"
 $guardrailWorktreeRoot = Resolve-Path -LiteralPath "$guardrailRepo\.worktrees"
 $guardrailWorktree = Resolve-Path -LiteralPath "$guardrailRepo\.worktrees\maintenance-guardrails"
 if (-not $guardrailWorktree.Path.StartsWith($guardrailWorktreeRoot.Path + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Worktree escaped intended root" }
@@ -713,6 +738,8 @@ git -C $guardrailRepo status --short
 ~~~
 
 The -d form must remain lowercase so Git refuses to delete an unmerged branch.
+Do not replace these exact operations with wildcard ref deletion, git clean,
+recursive filesystem deletion, forced worktree removal, or git branch -D.
 
 Expected: main checkout remains at origin/main; no maintenance branches, user
 files, or unrelated repositories are removed.
