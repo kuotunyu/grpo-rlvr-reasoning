@@ -51,6 +51,8 @@ def make_remote_fixture():
             f"https://huggingface.co/api/models/{repo_id}?blobs=true"
         ] = {
             "private": False,
+            "gated": False,
+            "disabled": False,
             "sha": head,
             "siblings": siblings,
         }
@@ -120,6 +122,117 @@ def test_audit_rejects_private_hf_repo():
     assert f"{repo_id}: repository is not public" in errors
 
 
+def test_audit_rejects_gated_hf_repo():
+    record, json_map, bytes_map = make_remote_fixture()
+    repo_id = record["repositories"]["lora"]["repo_id"]
+    json_map[f"https://huggingface.co/api/models/{repo_id}?blobs=true"][
+        "gated"
+    ] = "manual"
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert f"{repo_id}: repository requires gated access" in errors
+
+
+def test_audit_rejects_disabled_hf_repo():
+    record, json_map, bytes_map = make_remote_fixture()
+    repo_id = record["repositories"]["merged"]["repo_id"]
+    json_map[f"https://huggingface.co/api/models/{repo_id}?blobs=true"][
+        "disabled"
+    ] = True
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert f"{repo_id}: repository is disabled" in errors
+
+
+def test_audit_reports_missing_repository_record_without_traceback():
+    record, json_map, bytes_map = make_remote_fixture()
+    del record["repositories"]["lora"]
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert errors == ["audit record: missing repositories.lora object"]
+
+
+def test_audit_reports_missing_repository_identifiers_without_traceback():
+    record, json_map, bytes_map = make_remote_fixture()
+    del record["repositories"]["merged"]["repo_id"]
+    record["repositories"]["lora"]["live_head"] = None
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert errors == [
+        "audit record: repositories.merged.repo_id must be a non-empty string",
+        "audit record: repositories.lora.live_head must be a non-empty string",
+    ]
+
+
+def test_audit_reports_non_object_artifact_collections_without_traceback():
+    record, json_map, bytes_map = make_remote_fixture()
+    record["repositories"]["merged"]["artifacts"] = None
+    record["repositories"]["lora"]["adapter"] = []
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert errors == [
+        "audit record: repositories.merged.artifacts must be an object",
+        "audit record: repositories.lora.adapter must be an object",
+    ]
+
+
+def test_audit_reports_null_hf_siblings_without_traceback():
+    record, json_map, bytes_map = make_remote_fixture()
+    repo_id = record["repositories"]["merged"]["repo_id"]
+    json_map[f"https://huggingface.co/api/models/{repo_id}?blobs=true"][
+        "siblings"
+    ] = None
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert f"{repo_id}: siblings must be a list" in errors
+
+
+def test_audit_reports_sibling_without_filename_without_traceback():
+    record, json_map, bytes_map = make_remote_fixture()
+    repo_id = record["repositories"]["merged"]["repo_id"]
+    json_map[f"https://huggingface.co/api/models/{repo_id}?blobs=true"][
+        "siblings"
+    ][0] = {}
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert f"{repo_id}: sibling 0 has invalid rfilename" in errors
+
+
+def test_audit_reports_non_object_sibling_without_traceback():
+    record, json_map, bytes_map = make_remote_fixture()
+    repo_id = record["repositories"]["lora"]["repo_id"]
+    json_map[f"https://huggingface.co/api/models/{repo_id}?blobs=true"][
+        "siblings"
+    ][0] = "adapter_config.json"
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert f"{repo_id}: sibling 0 must be an object" in errors
+
+
 def test_audit_rejects_stale_full_model_file_in_lora():
     record, json_map, bytes_map = make_remote_fixture()
     repo_id = record["repositories"]["lora"]["repo_id"]
@@ -174,6 +287,28 @@ def test_audit_rejects_changed_artifact_hash_and_size():
     assert f"{repo_id}/{artifact['rfilename']}: SHA-256 mismatch" in errors
 
 
+def test_audit_reports_non_object_lfs_metadata_without_traceback():
+    record, json_map, bytes_map = make_remote_fixture()
+    repo_id = record["repositories"]["merged"]["repo_id"]
+    artifact = next(
+        item
+        for item in json_map[
+            f"https://huggingface.co/api/models/{repo_id}?blobs=true"
+        ]["siblings"]
+        if item["rfilename"] == "model-00001-of-00002.safetensors"
+    )
+    artifact["lfs"] = "not-an-object"
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert (
+        f"{repo_id}/{artifact['rfilename']}: lfs metadata must be an object"
+        in errors
+    )
+
+
 def test_audit_rejects_changed_card_license_metadata_and_legal_section():
     record, json_map, bytes_map = make_remote_fixture()
     repo = record["repositories"]["lora"]
@@ -189,6 +324,22 @@ def test_audit_rejects_changed_card_license_metadata_and_legal_section():
 
     assert f"{repo['repo_id']}/README.md: generated license header mismatch" in errors
     assert f"{repo['repo_id']}/README.md: generated legal section missing" in errors
+
+
+def test_audit_reports_invalid_utf8_card_without_traceback():
+    record, json_map, bytes_map = make_remote_fixture()
+    repo = record["repositories"]["lora"]
+    card_url = (
+        f"https://huggingface.co/{repo['repo_id']}/resolve/"
+        f"{repo['live_head']}/README.md"
+    )
+    bytes_map[card_url] = b"\xff"
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert f"{repo['repo_id']}/README.md: invalid UTF-8" in errors
 
 
 def test_audit_rejects_changed_qwen_license_bytes():

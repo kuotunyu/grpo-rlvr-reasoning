@@ -87,13 +87,42 @@ def _artifact_records(repo_record: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
+def _validate_audit_record(record: Any) -> list[str]:
+    if not isinstance(record, dict):
+        return ["audit record: root must be a JSON object"]
+    repositories = record.get("repositories")
+    if not isinstance(repositories, dict):
+        return ["audit record: missing repositories object"]
+    errors = []
+    for kind in ("merged", "lora"):
+        repo = repositories.get(kind)
+        if not isinstance(repo, dict):
+            errors.append(f"audit record: missing repositories.{kind} object")
+            continue
+        for field in ("repo_id", "live_head"):
+            if not isinstance(repo.get(field), str) or not repo[field]:
+                errors.append(
+                    f"audit record: repositories.{kind}.{field} "
+                    "must be a non-empty string"
+                )
+        collection = "artifacts" if kind == "merged" else "adapter"
+        if not isinstance(repo.get(collection), dict):
+            errors.append(
+                f"audit record: repositories.{kind}.{collection} "
+                "must be an object"
+            )
+    return errors
+
+
 def audit_public_release(
     record: dict[str, Any],
     fetch_json: FetchJson,
     fetch_bytes: FetchBytes,
 ) -> list[str]:
     """Return live-release errors without downloading any model weight blob."""
-    errors: list[str] = []
+    errors = _validate_audit_record(record)
+    if errors:
+        return errors
     github = _safe_fetch("GitHub", GITHUB_API_URL, fetch_json, errors)
     if github is not None:
         if github.get("private") is not False:
@@ -108,17 +137,39 @@ def audit_public_release(
         payload = _safe_fetch(repo_id, api_url, fetch_json, errors)
         if payload is None:
             continue
-        siblings = {
-            item["rfilename"]: item for item in payload.get("siblings", [])
-        }
-        repo_files[kind] = set(siblings)
         if payload.get("private") is not False:
             errors.append(f"{repo_id}: repository is not public")
+        if payload.get("gated") is not False:
+            errors.append(f"{repo_id}: repository requires gated access")
+        if payload.get("disabled") is not False:
+            errors.append(f"{repo_id}: repository is disabled")
         if payload.get("sha") != repo["live_head"]:
             errors.append(
                 f"{repo_id}: live head drifted: "
                 f"{payload.get('sha')!r} != {repo['live_head']!r}"
             )
+        siblings_raw = payload.get("siblings")
+        if not isinstance(siblings_raw, list):
+            errors.append(f"{repo_id}: siblings must be a list")
+            continue
+        siblings: dict[str, dict[str, Any]] = {}
+        invalid_siblings = False
+        for index, item in enumerate(siblings_raw):
+            if not isinstance(item, dict):
+                errors.append(f"{repo_id}: sibling {index} must be an object")
+                invalid_siblings = True
+                continue
+            name = item.get("rfilename")
+            if not isinstance(name, str) or not name:
+                errors.append(
+                    f"{repo_id}: sibling {index} has invalid rfilename"
+                )
+                invalid_siblings = True
+                continue
+            siblings[name] = item
+        if invalid_siblings:
+            continue
+        repo_files[kind] = set(siblings)
         for name, expected in _artifact_records(repo).items():
             actual = siblings.get(name)
             if actual is None:
@@ -126,7 +177,12 @@ def audit_public_release(
                 continue
             if actual.get("size") != expected["size"]:
                 errors.append(f"{repo_id}/{name}: size mismatch")
-            if (actual.get("lfs") or {}).get("sha256") != expected["sha256"]:
+            lfs = actual.get("lfs")
+            if not isinstance(lfs, dict):
+                errors.append(
+                    f"{repo_id}/{name}: lfs metadata must be an object"
+                )
+            elif lfs.get("sha256") != expected["sha256"]:
                 errors.append(f"{repo_id}/{name}: SHA-256 mismatch")
         card_url = HF_FILE_TEMPLATE.format(
             repo_id=repo_id,
@@ -137,15 +193,19 @@ def audit_public_release(
             f"{repo_id}/README.md", card_url, fetch_bytes, errors
         )
         if card_bytes is not None:
-            card = card_bytes.decode("utf-8")
-            if not card.startswith(model_card_header(library_name=library)):
-                errors.append(
-                    f"{repo_id}/README.md: generated license header mismatch"
-                )
-            if model_card_legal_section() not in card:
-                errors.append(
-                    f"{repo_id}/README.md: generated legal section missing"
-                )
+            try:
+                card = card_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                errors.append(f"{repo_id}/README.md: invalid UTF-8")
+            else:
+                if not card.startswith(model_card_header(library_name=library)):
+                    errors.append(
+                        f"{repo_id}/README.md: generated license header mismatch"
+                    )
+                if model_card_legal_section() not in card:
+                    errors.append(
+                        f"{repo_id}/README.md: generated legal section missing"
+                    )
         license_url = HF_FILE_TEMPLATE.format(
             repo_id=repo_id,
             revision=repo["live_head"],
