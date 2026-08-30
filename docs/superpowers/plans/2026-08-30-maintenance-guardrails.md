@@ -510,9 +510,17 @@ Run:
 $guardrailMergeSha = gh api repos/kuotunyu/grpo-rlvr-reasoning/commits/main --jq .sha
 $guardrailCheckNames = @("pytest (3.10)", "pytest (3.11)", "pytest (3.12)")
 $guardrailCheckRuns = gh api "repos/kuotunyu/grpo-rlvr-reasoning/commits/$guardrailMergeSha/check-runs?per_page=100" | ConvertFrom-Json
-$guardrailActionAppIds = @($guardrailCheckRuns.check_runs | Where-Object { $_.name -in $guardrailCheckNames } | ForEach-Object { $_.app.id } | Sort-Object -Unique)
-if ($guardrailActionAppIds.Count -ne 1) { throw "Expected one GitHub Actions app id for all required checks" }
-$guardrailActionsAppId = $guardrailActionAppIds[0]
+$guardrailRequiredRuns = @($guardrailCheckRuns.check_runs | Where-Object { $guardrailCheckNames -ccontains $_.name })
+foreach ($guardrailCheckName in $guardrailCheckNames) {
+    $guardrailNamedRuns = @($guardrailRequiredRuns | Where-Object { $_.name -ceq $guardrailCheckName })
+    if ($guardrailNamedRuns.Count -ne 1) { throw "Expected exactly one $guardrailCheckName check run; found $($guardrailNamedRuns.Count)" }
+    $guardrailNamedRun = $guardrailNamedRuns[0]
+    if ($guardrailNamedRun.status -cne "completed" -or $guardrailNamedRun.conclusion -cne "success") { throw "$guardrailCheckName is not completed successfully" }
+    if ($guardrailNamedRun.app.slug -cne "github-actions") { throw "$guardrailCheckName was not produced by GitHub Actions" }
+}
+$guardrailActionAppIds = @($guardrailRequiredRuns | ForEach-Object { [long]$_.app.id } | Sort-Object -Unique)
+if ($guardrailActionAppIds.Count -ne 1 -or $guardrailActionAppIds[0] -le 0) { throw "Expected one positive GitHub Actions app id for all required checks" }
+$guardrailActionsAppId = [long]$guardrailActionAppIds[0]
 $guardrailActionsAppId
 ~~~
 
@@ -530,9 +538,17 @@ Run:
 $guardrailMergeSha = gh api repos/kuotunyu/grpo-rlvr-reasoning/commits/main --jq .sha
 $guardrailCheckNames = @("pytest (3.10)", "pytest (3.11)", "pytest (3.12)")
 $guardrailCheckRuns = gh api "repos/kuotunyu/grpo-rlvr-reasoning/commits/$guardrailMergeSha/check-runs?per_page=100" | ConvertFrom-Json
-$guardrailActionAppIds = @($guardrailCheckRuns.check_runs | Where-Object { $_.name -in $guardrailCheckNames } | ForEach-Object { $_.app.id } | Sort-Object -Unique)
-if ($guardrailActionAppIds.Count -ne 1) { throw "Expected one GitHub Actions app id for all required checks" }
-$guardrailActionsAppId = $guardrailActionAppIds[0]
+$guardrailRequiredRuns = @($guardrailCheckRuns.check_runs | Where-Object { $guardrailCheckNames -ccontains $_.name })
+foreach ($guardrailCheckName in $guardrailCheckNames) {
+    $guardrailNamedRuns = @($guardrailRequiredRuns | Where-Object { $_.name -ceq $guardrailCheckName })
+    if ($guardrailNamedRuns.Count -ne 1) { throw "Expected exactly one $guardrailCheckName check run; found $($guardrailNamedRuns.Count)" }
+    $guardrailNamedRun = $guardrailNamedRuns[0]
+    if ($guardrailNamedRun.status -cne "completed" -or $guardrailNamedRun.conclusion -cne "success") { throw "$guardrailCheckName is not completed successfully" }
+    if ($guardrailNamedRun.app.slug -cne "github-actions") { throw "$guardrailCheckName was not produced by GitHub Actions" }
+}
+$guardrailActionAppIds = @($guardrailRequiredRuns | ForEach-Object { [long]$_.app.id } | Sort-Object -Unique)
+if ($guardrailActionAppIds.Count -ne 1 -or $guardrailActionAppIds[0] -le 0) { throw "Expected one positive GitHub Actions app id for all required checks" }
+$guardrailActionsAppId = [long]$guardrailActionAppIds[0]
 $guardrailRequiredChecks = @(
     @{ context = "pytest (3.10)"; app_id = $guardrailActionsAppId },
     @{ context = "pytest (3.11)"; app_id = $guardrailActionsAppId },
@@ -569,21 +585,40 @@ Expected: HTTP 200 and a branch-protection object.
 Run:
 
 ~~~powershell
+$guardrailMergeSha = gh api repos/kuotunyu/grpo-rlvr-reasoning/commits/main --jq .sha
 $guardrailCheckNames = @("pytest (3.10)", "pytest (3.11)", "pytest (3.12)")
+$guardrailCheckRuns = gh api "repos/kuotunyu/grpo-rlvr-reasoning/commits/$guardrailMergeSha/check-runs?per_page=100" | ConvertFrom-Json
+$guardrailRequiredRuns = @($guardrailCheckRuns.check_runs | Where-Object { $guardrailCheckNames -ccontains $_.name })
+foreach ($guardrailCheckName in $guardrailCheckNames) {
+    $guardrailNamedRuns = @($guardrailRequiredRuns | Where-Object { $_.name -ceq $guardrailCheckName })
+    if ($guardrailNamedRuns.Count -ne 1) { throw "Expected exactly one $guardrailCheckName check run; found $($guardrailNamedRuns.Count)" }
+    $guardrailNamedRun = $guardrailNamedRuns[0]
+    if ($guardrailNamedRun.status -cne "completed" -or $guardrailNamedRun.conclusion -cne "success") { throw "$guardrailCheckName is not completed successfully" }
+    if ($guardrailNamedRun.app.slug -cne "github-actions") { throw "$guardrailCheckName was not produced by GitHub Actions" }
+}
+$guardrailActionAppIds = @($guardrailRequiredRuns | ForEach-Object { [long]$_.app.id } | Sort-Object -Unique)
+if ($guardrailActionAppIds.Count -ne 1 -or $guardrailActionAppIds[0] -le 0) { throw "Expected one positive GitHub Actions app id for all required checks" }
+$guardrailActionsAppId = [long]$guardrailActionAppIds[0]
 $guardrailProtection = gh api repos/kuotunyu/grpo-rlvr-reasoning/branches/main/protection | ConvertFrom-Json
-$guardrailActualChecks = @($guardrailProtection.required_status_checks.checks.context | Sort-Object)
-$guardrailExpectedChecks = @($guardrailCheckNames | Sort-Object)
-if (Compare-Object $guardrailExpectedChecks $guardrailActualChecks) { throw "Required checks do not match" }
-if (-not $guardrailProtection.required_status_checks.strict) { throw "Strict checks are disabled" }
-if (-not $guardrailProtection.enforce_admins.enabled) { throw "Admin enforcement is disabled" }
+if ($null -eq $guardrailProtection.required_status_checks) { throw "Required status checks are missing" }
+$guardrailActualChecks = @($guardrailProtection.required_status_checks.checks | ForEach-Object { "$($_.context)|$([long]$_.app_id)" } | Sort-Object)
+$guardrailExpectedChecks = @($guardrailCheckNames | ForEach-Object { "$_|$guardrailActionsAppId" } | Sort-Object)
+if ($guardrailActualChecks.Count -ne $guardrailExpectedChecks.Count -or (Compare-Object $guardrailExpectedChecks $guardrailActualChecks)) { throw "Required context and app-id pairs do not match" }
+if ($guardrailProtection.required_status_checks.strict -ne $true) { throw "Strict checks are disabled" }
+if ($guardrailProtection.enforce_admins.enabled -ne $true) { throw "Admin enforcement is disabled" }
+if ($null -eq $guardrailProtection.required_pull_request_reviews) { throw "Pull-request review protection is missing" }
 if ($guardrailProtection.required_pull_request_reviews.required_approving_review_count -ne 0) { throw "Review count is not zero" }
-if ($guardrailProtection.required_pull_request_reviews.require_code_owner_reviews) { throw "Code-owner reviews are enabled" }
-if ($guardrailProtection.required_pull_request_reviews.require_last_push_approval) { throw "Last-push approval is enabled" }
-if (-not $guardrailProtection.required_conversation_resolution.enabled) { throw "Conversation resolution is disabled" }
-if ($guardrailProtection.allow_force_pushes.enabled) { throw "Force pushes are enabled" }
-if ($guardrailProtection.allow_deletions.enabled) { throw "Branch deletion is enabled" }
-if ($guardrailProtection.required_linear_history.enabled) { throw "Linear history is unexpectedly required" }
-if ($guardrailProtection.lock_branch.enabled) { throw "Main is unexpectedly locked" }
+if ($guardrailProtection.required_pull_request_reviews.dismiss_stale_reviews -ne $false) { throw "Stale-review dismissal is enabled or missing" }
+if ($guardrailProtection.required_pull_request_reviews.require_code_owner_reviews -ne $false) { throw "Code-owner reviews are enabled or missing" }
+if ($guardrailProtection.required_pull_request_reviews.require_last_push_approval -ne $false) { throw "Last-push approval is enabled or missing" }
+if ($null -ne $guardrailProtection.restrictions) { throw "Push restrictions are unexpectedly configured" }
+if ($guardrailProtection.required_conversation_resolution.enabled -ne $true) { throw "Conversation resolution is disabled" }
+if ($guardrailProtection.allow_force_pushes.enabled -ne $false) { throw "Force pushes are enabled or missing" }
+if ($guardrailProtection.allow_deletions.enabled -ne $false) { throw "Branch deletion is enabled or missing" }
+if ($guardrailProtection.block_creations.enabled -ne $false) { throw "Branch creation blocking is enabled or missing" }
+if ($guardrailProtection.required_linear_history.enabled -ne $false) { throw "Linear history is unexpectedly required or missing" }
+if ($guardrailProtection.lock_branch.enabled -ne $false) { throw "Main is unexpectedly locked or missing" }
+if ($guardrailProtection.allow_fork_syncing.enabled -ne $false) { throw "Fork syncing is enabled or missing" }
 "branch protection verified"
 ~~~
 
