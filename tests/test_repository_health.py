@@ -16,7 +16,14 @@ def _rendered_markdown_text(text):
         match = MARKDOWN_FENCE_PATTERN.match(line)
         if match:
             marker = match.group(1)
-            if fence_character is None:
+            invalid_backtick_opener = (
+                fence_character is None
+                and marker[0] == "`"
+                and "`" in line[match.end() :]
+            )
+            if invalid_backtick_opener:
+                match = None
+            elif fence_character is None:
                 fence_character = marker[0]
                 fence_length = len(marker)
             elif (
@@ -26,7 +33,8 @@ def _rendered_markdown_text(text):
             ):
                 fence_character = None
                 fence_length = 0
-            continue
+            if match:
+                continue
         if fence_character is None:
             rendered_lines.append(line)
     return "\n".join(rendered_lines)
@@ -40,6 +48,18 @@ def test_rendered_markdown_keeps_links_in_four_space_indented_pseudo_fences():
 
 def test_rendered_markdown_ignores_links_until_a_valid_fence_closer():
     text = "```\n[hidden](does-not-exist.md)\n``` trailing\n[also hidden](still-hidden.md)\n```"
+
+    assert _rendered_markdown_text(text) == ""
+
+
+def test_rendered_markdown_keeps_links_after_invalid_backtick_fence_info():
+    text = "``` language`name\n[missing link](does-not-exist.md)"
+
+    assert _rendered_markdown_text(text) == text
+
+
+def test_rendered_markdown_allows_backticks_in_tilde_fence_info():
+    text = "~~~ language`name\n[hidden](does-not-exist.md)\n~~~"
 
     assert _rendered_markdown_text(text) == ""
 
