@@ -958,7 +958,7 @@ if (-not $guardrailSddIgnorePath.StartsWith($guardrailWorktreePath + [IO.Path]::
 if (Test-Path -LiteralPath $guardrailSddIgnorePath) {
     $guardrailSddIgnoreItem = Get-Item -LiteralPath $guardrailSddIgnorePath -Force
     if ($guardrailSddIgnoreItem.PSIsContainer -or ($guardrailSddIgnoreItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "SDD ignore marker is not an ordinary file" }
-    $guardrailSddIgnoreAncestor = $guardrailSddIgnoreItem.Parent
+    $guardrailSddIgnoreAncestor = $guardrailSddIgnoreItem.Directory
     while (-not $guardrailSddIgnoreAncestor.FullName.Equals($guardrailWorktreePath, [StringComparison]::OrdinalIgnoreCase)) {
         if ($guardrailSddIgnoreAncestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Reparse point in SDD ignore-marker ancestry: $($guardrailSddIgnoreAncestor.FullName)" }
         $guardrailSddIgnoreAncestor = $guardrailSddIgnoreAncestor.Parent
