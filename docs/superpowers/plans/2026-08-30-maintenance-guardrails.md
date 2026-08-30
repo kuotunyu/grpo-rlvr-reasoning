@@ -520,6 +520,10 @@ Expected: one positive GitHub Actions app ID shared by all three checks.
 
 - [ ] **Step 3: Build and apply the exact protection payload**
 
+Use `checks` instead of the legacy `contexts` field when binding required
+checks to a GitHub App. Do not submit both fields together; GitHub rejects that
+mixed representation.
+
 Run:
 
 ~~~powershell
@@ -537,7 +541,6 @@ $guardrailRequiredChecks = @(
 $guardrailProtectionPayload = @{
     required_status_checks = @{
         strict = $true
-        contexts = @()
         checks = $guardrailRequiredChecks
     }
     enforce_admins = $true
