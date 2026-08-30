@@ -5,7 +5,7 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MARKDOWN_FENCE_PATTERN = re.compile(r"^\s*(`{3,}|~{3,})")
+MARKDOWN_FENCE_PATTERN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
 def _rendered_markdown_text(text):
@@ -19,13 +19,29 @@ def _rendered_markdown_text(text):
             if fence_character is None:
                 fence_character = marker[0]
                 fence_length = len(marker)
-            elif marker[0] == fence_character and len(marker) >= fence_length:
+            elif (
+                marker[0] == fence_character
+                and len(marker) >= fence_length
+                and not line[match.end() :].strip(" \t")
+            ):
                 fence_character = None
                 fence_length = 0
             continue
         if fence_character is None:
             rendered_lines.append(line)
     return "\n".join(rendered_lines)
+
+
+def test_rendered_markdown_keeps_links_in_four_space_indented_pseudo_fences():
+    text = "    ```\n[missing link](does-not-exist.md)\n    ```"
+
+    assert _rendered_markdown_text(text) == text
+
+
+def test_rendered_markdown_ignores_links_until_a_valid_fence_closer():
+    text = "```\n[hidden](does-not-exist.md)\n``` trailing\n[also hidden](still-hidden.md)\n```"
+
+    assert _rendered_markdown_text(text) == ""
 
 
 def test_notebook_is_valid_json_without_stored_outputs():
