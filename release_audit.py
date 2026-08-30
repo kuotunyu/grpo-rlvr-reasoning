@@ -30,6 +30,16 @@ HF_API_TEMPLATE = "https://huggingface.co/api/models/{repo_id}?blobs=true"
 HF_FILE_TEMPLATE = (
     "https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
 )
+REQUIRED_ARTIFACTS = {
+    "merged": (
+        "artifacts",
+        (
+            "model-00001-of-00002.safetensors",
+            "model-00002-of-00002.safetensors",
+        ),
+    ),
+    "lora": ("adapter", ("adapter_model.safetensors",)),
+}
 
 
 def _request(url: str, timeout: float) -> bytes:
@@ -105,12 +115,35 @@ def _validate_audit_record(record: Any) -> list[str]:
                     f"audit record: repositories.{kind}.{field} "
                     "must be a non-empty string"
                 )
-        collection = "artifacts" if kind == "merged" else "adapter"
-        if not isinstance(repo.get(collection), dict):
+        collection, required_artifacts = REQUIRED_ARTIFACTS[kind]
+        artifact_records = repo.get(collection)
+        if not isinstance(artifact_records, dict):
             errors.append(
                 f"audit record: repositories.{kind}.{collection} "
                 "must be an object"
             )
+            continue
+        for name in required_artifacts:
+            prefix = f"audit record: repositories.{kind}.{collection}.{name}"
+            if name not in artifact_records:
+                errors.append(f"{prefix} is required")
+                continue
+            metadata = artifact_records[name]
+            if not isinstance(metadata, dict):
+                errors.append(f"{prefix} must be an object")
+                continue
+            size = metadata.get("size")
+            if type(size) is not int or size <= 0:
+                errors.append(f"{prefix}.size must be a positive integer")
+            sha256 = metadata.get("sha256")
+            if not (
+                isinstance(sha256, str)
+                and len(sha256) == 64
+                and all(character in "0123456789abcdefABCDEF" for character in sha256)
+            ):
+                errors.append(
+                    f"{prefix}.sha256 must be 64 hexadecimal characters"
+                )
     return errors
 
 

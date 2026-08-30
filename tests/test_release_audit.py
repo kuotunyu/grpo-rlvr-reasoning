@@ -191,6 +191,52 @@ def test_audit_reports_non_object_artifact_collections_without_traceback():
     ]
 
 
+def test_audit_requires_all_reviewed_artifact_records():
+    record, json_map, bytes_map = make_remote_fixture()
+    del record["repositories"]["merged"]["artifacts"][
+        "model-00002-of-00002.safetensors"
+    ]
+    del record["repositories"]["lora"]["adapter"][
+        "adapter_model.safetensors"
+    ]
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert errors == [
+        "audit record: repositories.merged.artifacts."
+        "model-00002-of-00002.safetensors is required",
+        "audit record: repositories.lora.adapter."
+        "adapter_model.safetensors is required",
+    ]
+
+
+def test_audit_rejects_malformed_reviewed_artifact_metadata():
+    record, json_map, bytes_map = make_remote_fixture()
+    merged = record["repositories"]["merged"]["artifacts"]
+    adapter = record["repositories"]["lora"]["adapter"]
+    merged["model-00001-of-00002.safetensors"]["size"] = True
+    merged["model-00002-of-00002.safetensors"]["sha256"] = "z" * 64
+    adapter["adapter_model.safetensors"]["size"] = 0
+    adapter["adapter_model.safetensors"]["sha256"] = "abcd"
+
+    errors = audit_public_release(
+        record, json_map.__getitem__, bytes_map.__getitem__
+    )
+
+    assert errors == [
+        "audit record: repositories.merged.artifacts."
+        "model-00001-of-00002.safetensors.size must be a positive integer",
+        "audit record: repositories.merged.artifacts."
+        "model-00002-of-00002.safetensors.sha256 must be 64 hexadecimal characters",
+        "audit record: repositories.lora.adapter."
+        "adapter_model.safetensors.size must be a positive integer",
+        "audit record: repositories.lora.adapter."
+        "adapter_model.safetensors.sha256 must be 64 hexadecimal characters",
+    ]
+
+
 def test_audit_reports_null_hf_siblings_without_traceback():
     record, json_map, bytes_map = make_remote_fixture()
     repo_id = record["repositories"]["merged"]["repo_id"]
