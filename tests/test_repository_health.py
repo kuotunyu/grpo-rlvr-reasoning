@@ -5,6 +5,27 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MARKDOWN_FENCE_PATTERN = re.compile(r"^\s*(`{3,}|~{3,})")
+
+
+def _rendered_markdown_text(text):
+    rendered_lines = []
+    fence_character = None
+    fence_length = 0
+    for line in text.splitlines():
+        match = MARKDOWN_FENCE_PATTERN.match(line)
+        if match:
+            marker = match.group(1)
+            if fence_character is None:
+                fence_character = marker[0]
+                fence_length = len(marker)
+            elif marker[0] == fence_character and len(marker) >= fence_length:
+                fence_character = None
+                fence_length = 0
+            continue
+        if fence_character is None:
+            rendered_lines.append(line)
+    return "\n".join(rendered_lines)
 
 
 def test_notebook_is_valid_json_without_stored_outputs():
@@ -25,7 +46,10 @@ def test_local_markdown_links_exist():
     missing = []
     pattern = re.compile(r"!?\[[^]]*\]\(([^)]+)\)")
     for markdown in ROOT.rglob("*.md"):
-        for raw_target in pattern.findall(markdown.read_text(encoding="utf-8")):
+        rendered_text = _rendered_markdown_text(
+            markdown.read_text(encoding="utf-8")
+        )
+        for raw_target in pattern.findall(rendered_text):
             target = raw_target.strip().split()[0].strip("<>")
             if target.startswith(("http://", "https://", "#", "mailto:")):
                 continue
