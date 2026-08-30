@@ -776,12 +776,44 @@ $guardrailPushUrls = @(git -C $guardrailRepo remote get-url --push --all origin)
 if ($LASTEXITCODE -ne 0) { throw "Unable to resolve origin push URL" }
 if ($guardrailPushUrls.Count -ne 1 -or $guardrailPushUrls[0] -ne $guardrailExpectedOrigin) { throw "Unexpected origin push URLs: $($guardrailPushUrls -join ', ')" }
 
-git -C $guardrailRepo fetch --no-tags --no-prune $guardrailExpectedOrigin refs/heads/main:refs/remotes/origin/main
+$guardrailOriginMainSymrefTargets = @(git -C $guardrailRepo symbolic-ref --quiet $guardrailOriginMainRef)
+$guardrailOriginMainSymrefExit = $LASTEXITCODE
+if ($guardrailOriginMainSymrefExit -eq 0) {
+    if ($guardrailOriginMainSymrefTargets.Count -ne 1) { throw "Unexpected origin/main symref target count" }
+    throw "Exact origin/main is symbolic; refusing to update referent: $($guardrailOriginMainSymrefTargets[0])"
+} elseif ($guardrailOriginMainSymrefExit -eq 1) {
+    if ($guardrailOriginMainSymrefTargets.Count -ne 0) { throw "Unexpected output while checking non-symbolic origin/main" }
+} else {
+    throw "Unable to inspect exact origin/main symbolic state"
+}
+$guardrailObservedOriginMainOids = @(git -C $guardrailRepo rev-parse --verify --quiet $guardrailOriginMainRef)
+if ($LASTEXITCODE -ne 0 -or $guardrailObservedOriginMainOids.Count -ne 1) { throw "Exact direct origin/main ref is missing or unreadable" }
+$guardrailObservedOriginMainOid = $guardrailObservedOriginMainOids[0]
+Assert-GuardrailFullOid $guardrailObservedOriginMainOid "observed origin/main"
+
+git -C $guardrailRepo fetch --no-tags --no-prune $guardrailExpectedOrigin refs/heads/main
 if ($LASTEXITCODE -ne 0) { throw "Exact origin/main fetch failed" }
-$guardrailOriginMainOids = @(git -C $guardrailRepo rev-parse --verify "$guardrailOriginMainRef`^{commit}")
-if ($LASTEXITCODE -ne 0 -or $guardrailOriginMainOids.Count -ne 1) { throw "Unable to resolve exact origin/main commit" }
+$guardrailFetchedMainOids = @(git -C $guardrailRepo rev-parse --verify "FETCH_HEAD^{commit}")
+if ($LASTEXITCODE -ne 0 -or $guardrailFetchedMainOids.Count -ne 1) { throw "Unable to resolve fetched main commit" }
+$guardrailFetchedMainOid = $guardrailFetchedMainOids[0]
+Assert-GuardrailFullOid $guardrailFetchedMainOid "fetched main"
+git -C $guardrailRepo update-ref --no-deref $guardrailOriginMainRef $guardrailFetchedMainOid $guardrailObservedOriginMainOid
+if ($LASTEXITCODE -ne 0) { throw "Concurrent-safe exact origin/main update failed" }
+$guardrailRemainingOriginMainSymrefTargets = @(git -C $guardrailRepo symbolic-ref --quiet $guardrailOriginMainRef)
+$guardrailRemainingOriginMainSymrefExit = $LASTEXITCODE
+if ($guardrailRemainingOriginMainSymrefExit -eq 0) {
+    if ($guardrailRemainingOriginMainSymrefTargets.Count -ne 1) { throw "Unexpected remaining origin/main symref target count" }
+    throw "Exact origin/main became symbolic: $($guardrailRemainingOriginMainSymrefTargets[0])"
+} elseif ($guardrailRemainingOriginMainSymrefExit -eq 1) {
+    if ($guardrailRemainingOriginMainSymrefTargets.Count -ne 0) { throw "Unexpected output while asserting direct origin/main" }
+} else {
+    throw "Unable to assert origin/main symbolic-ref absence"
+}
+$guardrailOriginMainOids = @(git -C $guardrailRepo show-ref --verify --hash $guardrailOriginMainRef)
+if ($LASTEXITCODE -ne 0 -or $guardrailOriginMainOids.Count -ne 1) { throw "Unable to verify exact direct origin/main ref" }
 $guardrailOriginMainOid = $guardrailOriginMainOids[0]
 Assert-GuardrailFullOid $guardrailOriginMainOid "origin/main"
+if ($guardrailOriginMainOid -ne $guardrailFetchedMainOid) { throw "Exact origin/main does not equal fetched main" }
 Assert-GuardrailMainExactAndClean $guardrailOriginMainOid
 
 $guardrailWorktreeRootPath = [IO.Path]::GetFullPath((Join-Path $guardrailRepo ".worktrees"))
@@ -861,22 +893,48 @@ if ($guardrailRemoteRefLines.Count -eq 1) {
 $guardrailRemoteRefLines = @(git -C $guardrailRepo ls-remote --heads $guardrailExpectedOrigin $guardrailRemoteBranchRef)
 if ($LASTEXITCODE -ne 0) { throw "Unable to recheck exact remote maintenance ref" }
 if ($guardrailRemoteRefLines.Count -ne 0) { throw "Remote maintenance branch still exists" }
+$guardrailTrackingSymrefTargets = @(git -C $guardrailRepo symbolic-ref --quiet $guardrailTrackingBranchRef)
+$guardrailTrackingSymrefExit = $LASTEXITCODE
+if ($guardrailTrackingSymrefExit -eq 0) {
+    if ($guardrailTrackingSymrefTargets.Count -ne 1) { throw "Unexpected tracking symref target count" }
+    throw "Exact maintenance tracking ref is symbolic; refusing to delete referent: $($guardrailTrackingSymrefTargets[0])"
+} elseif ($guardrailTrackingSymrefExit -eq 1) {
+    if ($guardrailTrackingSymrefTargets.Count -ne 0) { throw "Unexpected output while checking non-symbolic tracking ref" }
+} else {
+    throw "Unable to inspect exact tracking ref symbolic state"
+}
 $guardrailTrackingOids = @(git -C $guardrailRepo rev-parse --verify --quiet $guardrailTrackingBranchRef)
 $guardrailTrackingExit = $LASTEXITCODE
 if ($guardrailTrackingExit -eq 0) {
     if ($guardrailTrackingOids.Count -ne 1) { throw "Unexpected tracking-ref OID count" }
     $guardrailTrackingOid = $guardrailTrackingOids[0]
     Assert-GuardrailFullOid $guardrailTrackingOid "origin maintenance tracking ref"
-    git -C $guardrailRepo update-ref -d $guardrailTrackingBranchRef $guardrailTrackingOid
+    git -C $guardrailRepo update-ref --no-deref -d $guardrailTrackingBranchRef $guardrailTrackingOid
     if ($LASTEXITCODE -ne 0) { throw "Compare-and-delete of exact tracking ref failed" }
 } elseif ($guardrailTrackingExit -ne 1) {
     throw "Unable to inspect exact tracking ref"
 } else {
     "origin/maintenance/guardrails tracking ref already absent"
 }
+$guardrailRemainingSymrefTargets = @(git -C $guardrailRepo symbolic-ref --quiet $guardrailTrackingBranchRef)
+$guardrailRemainingSymrefExit = $LASTEXITCODE
+if ($guardrailRemainingSymrefExit -eq 0) {
+    if ($guardrailRemainingSymrefTargets.Count -ne 1) { throw "Unexpected remaining tracking symref target count" }
+    throw "Exact maintenance tracking ref still exists as a symbolic ref: $($guardrailRemainingSymrefTargets[0])"
+} elseif ($guardrailRemainingSymrefExit -eq 1) {
+    if ($guardrailRemainingSymrefTargets.Count -ne 0) { throw "Unexpected output while asserting symbolic-ref absence" }
+} else {
+    throw "Unable to assert exact symbolic-ref absence"
+}
 git -C $guardrailRepo show-ref --verify --quiet $guardrailTrackingBranchRef
-if ($LASTEXITCODE -eq 0) { throw "Exact maintenance tracking ref still exists" }
-if ($LASTEXITCODE -ne 1) { throw "Unable to assert tracking-ref absence" }
+$guardrailRemainingDirectExit = $LASTEXITCODE
+if ($guardrailRemainingDirectExit -eq 0) {
+    throw "Exact maintenance tracking ref still exists as a direct ref"
+} elseif ($guardrailRemainingDirectExit -eq 1) {
+    "exact direct maintenance tracking ref absent"
+} else {
+    throw "Unable to assert exact direct-ref absence"
+}
 
 $guardrailDisposableDirectories = @(
     (Join-Path $guardrailWorktreePath ".superpowers\sdd\2026-08-30-maintenance-guardrails"),
