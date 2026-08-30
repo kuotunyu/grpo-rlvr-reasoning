@@ -1,5 +1,8 @@
 # grpo-rlvr-reasoning
 
+[![tests](https://github.com/kuotunyu/grpo-rlvr-reasoning/actions/workflows/ci.yml/badge.svg)](https://github.com/kuotunyu/grpo-rlvr-reasoning/actions/workflows/ci.yml)
+[![public release audit](https://github.com/kuotunyu/grpo-rlvr-reasoning/actions/workflows/release-audit.yml/badge.svg)](https://github.com/kuotunyu/grpo-rlvr-reasoning/actions/workflows/release-audit.yml)
+
 用 **GRPO**(Group Relative Policy Optimization)+ **可驗證獎勵**(RLVR)訓練
 `Qwen/Qwen2.5-3B-Instruct` 在 GSM8K 上的數學推理,驗證 DeepSeek-R1 帶起的 RLVR 敘事:
 單靠規則式獎勵(答對 + 格式,不用 reward model),reward 乾淨爬升、格式遵循率從
@@ -110,6 +113,7 @@ python eval/analyze_paired.py
 pip install pytest
 python -m pytest tests/ -v
 python eval/verify_results.py     # 雜湊、schema、配對與 metrics 一致性
+python release_audit.py           # 唯讀檢查 GitHub/HF live 發布面，不下載權重
 python eval/analyze_paired.py     # 不跑模型,重建配對統計
 ```
 
@@ -181,7 +185,7 @@ eval/analyze_paired.py   # 不重跑模型，對逐題結果做 exact paired ana
 eval/verify_results.py   # 離線驗證 committed evidence 的雜湊、schema 與 metrics
 hf_release.py            # HF card 授權 metadata 與 merged/LoRA 檔案面 gate
 results/                 # 曲線圖、provenance、paired 統計、逐題生成記錄
-docs/huggingface/        # 唯讀 artifact audit 與待審的 HF 遠端修復方案
+docs/huggingface/        # HF artifact audit、merged PR 與 live 驗證紀錄
 LICENSES/                # GSM8K MIT、Unsloth LGPL、Qwen Research License
 ```
 
