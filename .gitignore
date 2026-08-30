@@ -28,6 +28,7 @@ hf_cache/
 # 憑證與本機工具設定
 .env
 .claude/
+.worktrees/
 
 # 私人筆記,不上 GitHub
 interview.md
