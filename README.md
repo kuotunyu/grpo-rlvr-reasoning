@@ -189,6 +189,12 @@ docs/huggingface/        # HF artifact audit、merged PR 與 live 驗證紀錄
 LICENSES/                # GSM8K MIT、Unsloth LGPL、Qwen Research License
 ```
 
+## 維護與發布
+
+為避免誤推 main、錯誤移動 release tag 或直接改寫 Hugging Face，所有後續操作統一依
+[維護與發布防呆指南](docs/MAINTENANCE.md)進行。不確定時先停止操作並交給 Codex
+檢查，不要自行 bypass CI 或重寫公開歷史。
+
 ## License 與第三方內容
 
 - 原創程式、文件、測試與 assets: [Apache-2.0](LICENSE)。
