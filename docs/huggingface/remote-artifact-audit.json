@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "observed_date": "2026-08-30",
-  "mode": "read-only",
+  "mode": "post-merge-verified",
   "upstream_qwen": {
     "repo_id": "Qwen/Qwen2.5-3B-Instruct",
     "revision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
@@ -11,11 +11,13 @@
   "repositories": {
     "merged": {
       "repo_id": "steven0226/qwen2.5-3b-grpo-gsm8k",
-      "observed_head": "b4ff4e0d1555d1e839c49987c0c6e3bf926b6807",
+      "pre_repair_head": "b4ff4e0d1555d1e839c49987c0c6e3bf926b6807",
+      "live_head": "350f7f43c3d98b70b6d44083f253f9bcaff8684e",
       "weight_complete_commit": "916d51042e6e660b2b652f1442ea32f511aa4cca",
-      "card_declares": "apache-2.0",
-      "license_file_present": false,
-      "notice_file_present": false,
+      "pre_repair_card_declared": "apache-2.0",
+      "card_declares": "qwen-research",
+      "license_file_present": true,
+      "notice_file_present": true,
       "artifacts": {
         "model-00001-of-00002.safetensors": {
           "size": 3968658944,
@@ -29,14 +31,16 @@
           "tensor_bytes": 6171877376
         }
       },
-      "finding": "The repository is a complete BF16 merged model, but its card and missing license/notice files misstate the Qwen redistribution boundary."
+      "finding": "The complete BF16 merged model is retained unchanged; its live card, LICENSE, and NOTICE now state the Qwen redistribution boundary."
     },
     "lora": {
       "repo_id": "steven0226/qwen2.5-3b-grpo-gsm8k-lora",
-      "observed_head": "73b8b3884278aa7a32e10d994077d96ae57f4102",
-      "card_declares": "apache-2.0",
-      "license_file_present": false,
-      "notice_file_present": false,
+      "pre_repair_head": "73b8b3884278aa7a32e10d994077d96ae57f4102",
+      "live_head": "47100250b8400219658f2b61ba1cc2a5b6548ea6",
+      "pre_repair_card_declared": "apache-2.0",
+      "card_declares": "qwen-research",
+      "license_file_present": true,
+      "notice_file_present": true,
       "adapter": {
         "adapter_model.safetensors": {
           "size": 119802032,
@@ -52,6 +56,7 @@
       },
       "stale_merged_artifacts": {
         "source_commit": "79e740b9639e9e7055c039cda3a72afcb4f91225",
+        "present_on_live_default": false,
         "model-00001-of-00002.safetensors": {
           "size": 3968658944,
           "sha256": "d4b27a352e6aa5f2273bc05366ea2e20f010490894921abe547718ee1305ed1f"
@@ -64,8 +69,23 @@
           "present": true
         }
       },
-      "finding": "The current adapter is the intended 1000-step LoRA, while the three model.* artifacts are an older 500-step full merge left by the initial upload. The repository therefore has an unsafe mixed artifact surface."
+      "finding": "The live default branch retains the intended 1000-step LoRA adapter and no longer exposes the three older 500-step full-merge artifacts."
     }
+  },
+  "post_merge_verification": {
+    "verified_date": "2026-08-30",
+    "layout_errors": [],
+    "cards_match_generated_license_metadata_and_legal_section": true,
+    "license_sha256_matches_pinned_upstream": true,
+    "notice_matches_generated_text": true,
+    "merged_weight_hashes_unchanged": true,
+    "lora_adapter_hash_unchanged": true,
+    "stale_lora_artifacts_absent": [
+      "model-00001-of-00002.safetensors",
+      "model-00002-of-00002.safetensors",
+      "model.safetensors.index.json"
+    ],
+    "model_and_discussion_urls_http_status": 200
   },
   "remote_changes_performed": [
     {
@@ -74,8 +94,9 @@
       "discussion": 1,
       "url": "https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k/discussions/1",
       "candidate_oid": "177db5a8a24b82d25bd57be952bfc47de8ca06e4",
-      "status": "open",
-      "merged": false
+      "status": "merged",
+      "merged": true,
+      "merge_commit_oid": "350f7f43c3d98b70b6d44083f253f9bcaff8684e"
     },
     {
       "repo_id": "steven0226/qwen2.5-3b-grpo-gsm8k-lora",
@@ -83,8 +104,9 @@
       "discussion": 1,
       "url": "https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k-lora/discussions/1",
       "candidate_oid": "bd7997a79079dac895dfb46dcecab9a37a7bf770",
-      "status": "open",
-      "merged": false
+      "status": "merged",
+      "merged": true,
+      "merge_commit_oid": "47100250b8400219658f2b61ba1cc2a5b6548ea6"
     }
   ]
 }

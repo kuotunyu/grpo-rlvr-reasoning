@@ -1,17 +1,21 @@
 # Hugging Face remote repair plan
 
-Status: **two review PRs created on 2026-08-30; neither PR has been merged**.
+Status: **both reviewed PRs were merged and their live default branches were
+verified on 2026-08-30**.
 
 - Merged model PR: <https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k/discussions/1>
-  (`177db5a8a24b82d25bd57be952bfc47de8ca06e4`)
+  (candidate `177db5a8a24b82d25bd57be952bfc47de8ca06e4`, merge commit
+  `350f7f43c3d98b70b6d44083f253f9bcaff8684e`)
 - LoRA PR: <https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k-lora/discussions/1>
-  (`bd7997a79079dac895dfb46dcecab9a37a7bf770`)
+  (candidate `bd7997a79079dac895dfb46dcecab9a37a7bf770`, merge commit
+  `47100250b8400219658f2b61ba1cc2a5b6548ea6`)
 
-Independent verification confirmed both PRs are open, target `main`, have no
-reported conflicts, and have no merge commit. The default-branch heads remain
-the audited parent commits below.
+Immediately before merging, independent verification confirmed that both PRs
+were open, targeted `main`, had no reported conflicts, and still matched the
+reviewed candidate and parent commits. After merging, the two merge commits
+above became the live default-branch heads and the release checks below passed.
 
-The read-only snapshot behind this plan is recorded in
+The original read-only snapshot and the final merge record are stored in
 [`remote-artifact-audit.json`](remote-artifact-audit.json). Every remote write
 must use an optimistic parent-commit check and open a Hugging Face pull request;
 do not push directly to either default branch.
@@ -48,7 +52,7 @@ Repository: `steven0226/qwen2.5-3b-grpo-gsm8k`
 Expected parent commit:
 `b4ff4e0d1555d1e839c49987c0c6e3bf926b6807`.
 
-Proposed operations:
+Merged operations:
 
 - replace `README.md`;
 - add `LICENSE`;
@@ -65,7 +69,7 @@ Repository: `steven0226/qwen2.5-3b-grpo-gsm8k-lora`
 Expected parent commit:
 `73b8b3884278aa7a32e10d994077d96ae57f4102`.
 
-Proposed operations:
+Merged operations:
 
 - replace `README.md`;
 - add `LICENSE`;
@@ -84,15 +88,16 @@ the older full merged model from commit
 `79e740b9639e9e7055c039cda3a72afcb4f91225`; retaining them makes a LoRA repo
 look like a second full model and conflates two checkpoints.
 
-## Safe execution shape
+## Execution and verification record
 
-Use one `HfApi.create_commit` call per repository with `create_pr=True` and the
-reviewed head supplied as `parent_commit`. The operation list must be assembled
-from explicit file paths: three additions/replacements for the merged repo, and
-three additions/replacements plus exactly three deletions for the LoRA repo.
-Abort if either remote head changed after this audit.
+Each review branch was created with one `HfApi.create_commit` call using
+`create_pr=True` and the reviewed head supplied as `parent_commit`. The merged
+repo operation list had three additions/replacements; the LoRA operation list
+had those three additions/replacements plus exactly three deletions. Neither
+parent nor candidate OID drifted before merge.
 
-Before merging either PR:
+The following checks passed against both candidate revisions before merge and
+were repeated against the live default branches after merge:
 
 1. inspect the rendered card and PR file diff;
 2. run `hf_release.audit_hf_file_layout()` against the PR revision;
@@ -104,18 +109,14 @@ Before merging either PR:
 6. confirm the eventual GitHub source link returns successfully before making
    it a live card link.
 
-If a merged PR is wrong, close it without merging. If a merged commit later
-needs reversal, create a normal revert commit. Do not rewrite repository
-history or delete either repository.
+If a later regression needs reversal, create a normal revert commit. Do not
+rewrite repository history or delete either repository.
 
 ## Publish gate
 
-Current gate: **NO-GO for merging the HF repairs**. The GitHub source is public,
-but both live default-branch cards still mislabel model licensing and the LoRA
-default branch still mixes adapter and full-model artifacts. The clean state
-exists only on the two open PR candidate revisions until they are reviewed and
-merged.
-
-The gate can change to **GO** only after the local diff is accepted, GitHub
-publication is explicitly authorized, both HF PRs match this plan, all checks
-above pass, and the owner approves merging the remote repairs.
+Current gate: **GO**. The GitHub source is public, both live HF cards declare
+`qwen-research`, the exact Qwen license and required notice are present, the
+merged model shards retain their reviewed hashes, and the LoRA default branch
+contains the reviewed adapter without the three stale full-model artifacts.
+All owner approvals and pre-/post-merge checks required by this plan are now
+complete.
