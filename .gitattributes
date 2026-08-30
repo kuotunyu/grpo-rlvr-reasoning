@@ -1,4 +1,7 @@
 # Preserve the pinned upstream Qwen license byte-for-byte on every platform.
 LICENSES/QWEN-RESEARCH-LICENSE.txt -text
-results/paired_analysis.json text eol=lf
-results/paired_analysis.md text eol=lf
+
+# Manifest hashes cover repository bytes, so every text artifact must remain LF.
+results/*.json text eol=lf
+results/*.jsonl text eol=lf
+results/*.md text eol=lf
