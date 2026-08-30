@@ -776,52 +776,13 @@ $guardrailPushUrls = @(git -C $guardrailRepo remote get-url --push --all origin)
 if ($LASTEXITCODE -ne 0) { throw "Unable to resolve origin push URL" }
 if ($guardrailPushUrls.Count -ne 1 -or $guardrailPushUrls[0] -ne $guardrailExpectedOrigin) { throw "Unexpected origin push URLs: $($guardrailPushUrls -join ', ')" }
 
-git -C $guardrailRepo fetch --no-tags --no-prune origin refs/heads/main:refs/remotes/origin/main
+git -C $guardrailRepo fetch --no-tags --no-prune $guardrailExpectedOrigin refs/heads/main:refs/remotes/origin/main
 if ($LASTEXITCODE -ne 0) { throw "Exact origin/main fetch failed" }
 $guardrailOriginMainOids = @(git -C $guardrailRepo rev-parse --verify "$guardrailOriginMainRef`^{commit}")
 if ($LASTEXITCODE -ne 0 -or $guardrailOriginMainOids.Count -ne 1) { throw "Unable to resolve exact origin/main commit" }
 $guardrailOriginMainOid = $guardrailOriginMainOids[0]
 Assert-GuardrailFullOid $guardrailOriginMainOid "origin/main"
 Assert-GuardrailMainExactAndClean $guardrailOriginMainOid
-
-$guardrailRemoteRefLines = @(git -C $guardrailRepo ls-remote --heads origin $guardrailRemoteBranchRef)
-if ($LASTEXITCODE -ne 0) { throw "Unable to inspect exact remote maintenance ref" }
-if ($guardrailRemoteRefLines.Count -gt 1) { throw "Expected at most one exact remote maintenance ref" }
-if ($guardrailRemoteRefLines.Count -eq 1) {
-    $guardrailRemoteRefParts = $guardrailRemoteRefLines[0] -split '\s+', 2
-    if ($guardrailRemoteRefParts.Count -ne 2 -or $guardrailRemoteRefParts[1] -ne $guardrailRemoteBranchRef) { throw "Unexpected remote ref: $($guardrailRemoteRefLines[0])" }
-    $guardrailRemoteOid = $guardrailRemoteRefParts[0]
-    Assert-GuardrailFullOid $guardrailRemoteOid "remote maintenance branch"
-    git -C $guardrailRepo cat-file -e "$guardrailRemoteOid`^{commit}"
-    if ($LASTEXITCODE -ne 0) { throw "Remote maintenance OID is not available as a local commit" }
-    git -C $guardrailRepo merge-base --is-ancestor $guardrailRemoteOid $guardrailOriginMainOid
-    if ($LASTEXITCODE -eq 1) { throw "Remote maintenance OID is not merged into exact origin/main" }
-    if ($LASTEXITCODE -ne 0) { throw "Unable to verify remote maintenance ancestry" }
-    git -C $guardrailRepo push "--force-with-lease=$guardrailRemoteBranchRef`:$guardrailRemoteOid" origin ":$guardrailRemoteBranchRef"
-    if ($LASTEXITCODE -ne 0) { throw "Leased exact remote maintenance deletion failed" }
-} else {
-    "remote maintenance/guardrails already absent; no push sent"
-}
-
-$guardrailRemoteRefLines = @(git -C $guardrailRepo ls-remote --heads origin $guardrailRemoteBranchRef)
-if ($LASTEXITCODE -ne 0) { throw "Unable to recheck exact remote maintenance ref" }
-if ($guardrailRemoteRefLines.Count -ne 0) { throw "Remote maintenance branch still exists" }
-$guardrailTrackingOids = @(git -C $guardrailRepo rev-parse --verify --quiet $guardrailTrackingBranchRef)
-$guardrailTrackingExit = $LASTEXITCODE
-if ($guardrailTrackingExit -eq 0) {
-    if ($guardrailTrackingOids.Count -ne 1) { throw "Unexpected tracking-ref OID count" }
-    $guardrailTrackingOid = $guardrailTrackingOids[0]
-    Assert-GuardrailFullOid $guardrailTrackingOid "origin maintenance tracking ref"
-    git -C $guardrailRepo update-ref -d $guardrailTrackingBranchRef $guardrailTrackingOid
-    if ($LASTEXITCODE -ne 0) { throw "Compare-and-delete of exact tracking ref failed" }
-} elseif ($guardrailTrackingExit -ne 1) {
-    throw "Unable to inspect exact tracking ref"
-} else {
-    "origin/maintenance/guardrails tracking ref already absent"
-}
-git -C $guardrailRepo show-ref --verify --quiet $guardrailTrackingBranchRef
-if ($LASTEXITCODE -eq 0) { throw "Exact maintenance tracking ref still exists" }
-if ($LASTEXITCODE -ne 1) { throw "Unable to assert tracking-ref absence" }
 
 $guardrailWorktreeRootPath = [IO.Path]::GetFullPath((Join-Path $guardrailRepo ".worktrees"))
 $guardrailWorktreePath = [IO.Path]::GetFullPath((Join-Path $guardrailWorktreeRootPath "maintenance-guardrails"))
@@ -876,6 +837,46 @@ foreach ($guardrailIgnoredPath in $guardrailIgnoredPaths) {
     }
     if (-not $guardrailIgnoredAllowed) { throw "Unexpected ignored worktree path: $guardrailIgnoredPath" }
 }
+
+$guardrailRemoteRefLines = @(git -C $guardrailRepo ls-remote --heads $guardrailExpectedOrigin $guardrailRemoteBranchRef)
+if ($LASTEXITCODE -ne 0) { throw "Unable to inspect exact remote maintenance ref" }
+if ($guardrailRemoteRefLines.Count -gt 1) { throw "Expected at most one exact remote maintenance ref" }
+if ($guardrailRemoteRefLines.Count -eq 1) {
+    $guardrailRemoteRefParts = $guardrailRemoteRefLines[0] -split '\s+', 2
+    if ($guardrailRemoteRefParts.Count -ne 2 -or $guardrailRemoteRefParts[1] -ne $guardrailRemoteBranchRef) { throw "Unexpected remote ref: $($guardrailRemoteRefLines[0])" }
+    $guardrailRemoteOid = $guardrailRemoteRefParts[0]
+    Assert-GuardrailFullOid $guardrailRemoteOid "remote maintenance branch"
+    if ($guardrailRemoteOid -ne $guardrailWorktreeOid) { throw "Remote maintenance OID does not match the validated local implementation HEAD" }
+    git -C $guardrailRepo cat-file -e "$guardrailRemoteOid`^{commit}"
+    if ($LASTEXITCODE -ne 0) { throw "Remote maintenance OID is not available as a local commit" }
+    git -C $guardrailRepo merge-base --is-ancestor $guardrailRemoteOid $guardrailOriginMainOid
+    if ($LASTEXITCODE -eq 1) { throw "Remote maintenance OID is not merged into exact origin/main" }
+    if ($LASTEXITCODE -ne 0) { throw "Unable to verify remote maintenance ancestry" }
+    git -C $guardrailRepo push "--force-with-lease=$guardrailRemoteBranchRef`:$guardrailRemoteOid" $guardrailExpectedOrigin ":$guardrailRemoteBranchRef"
+    if ($LASTEXITCODE -ne 0) { throw "Leased exact remote maintenance deletion failed" }
+} else {
+    "remote maintenance/guardrails already absent; no push sent"
+}
+
+$guardrailRemoteRefLines = @(git -C $guardrailRepo ls-remote --heads $guardrailExpectedOrigin $guardrailRemoteBranchRef)
+if ($LASTEXITCODE -ne 0) { throw "Unable to recheck exact remote maintenance ref" }
+if ($guardrailRemoteRefLines.Count -ne 0) { throw "Remote maintenance branch still exists" }
+$guardrailTrackingOids = @(git -C $guardrailRepo rev-parse --verify --quiet $guardrailTrackingBranchRef)
+$guardrailTrackingExit = $LASTEXITCODE
+if ($guardrailTrackingExit -eq 0) {
+    if ($guardrailTrackingOids.Count -ne 1) { throw "Unexpected tracking-ref OID count" }
+    $guardrailTrackingOid = $guardrailTrackingOids[0]
+    Assert-GuardrailFullOid $guardrailTrackingOid "origin maintenance tracking ref"
+    git -C $guardrailRepo update-ref -d $guardrailTrackingBranchRef $guardrailTrackingOid
+    if ($LASTEXITCODE -ne 0) { throw "Compare-and-delete of exact tracking ref failed" }
+} elseif ($guardrailTrackingExit -ne 1) {
+    throw "Unable to inspect exact tracking ref"
+} else {
+    "origin/maintenance/guardrails tracking ref already absent"
+}
+git -C $guardrailRepo show-ref --verify --quiet $guardrailTrackingBranchRef
+if ($LASTEXITCODE -eq 0) { throw "Exact maintenance tracking ref still exists" }
+if ($LASTEXITCODE -ne 1) { throw "Unable to assert tracking-ref absence" }
 
 $guardrailDisposableDirectories = @(
     (Join-Path $guardrailWorktreePath ".superpowers\sdd\2026-08-30-maintenance-guardrails"),
