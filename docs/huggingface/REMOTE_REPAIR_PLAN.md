@@ -1,6 +1,15 @@
 # Hugging Face remote repair plan
 
-Status: **review required; no remote change has been performed**.
+Status: **two review PRs created on 2026-08-30; neither PR has been merged**.
+
+- Merged model PR: <https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k/discussions/1>
+  (`177db5a8a24b82d25bd57be952bfc47de8ca06e4`)
+- LoRA PR: <https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k-lora/discussions/1>
+  (`bd7997a79079dac895dfb46dcecab9a37a7bf770`)
+
+Independent verification confirmed both PRs are open, target `main`, have no
+reported conflicts, and have no merge commit. The default-branch heads remain
+the audited parent commits below.
 
 The read-only snapshot behind this plan is recorded in
 [`remote-artifact-audit.json`](remote-artifact-audit.json). Every remote write
@@ -101,9 +110,11 @@ history or delete either repository.
 
 ## Publish gate
 
-Current gate: **NO-GO** for a coordinated public release. The local source is
-being prepared, but both live cards still mislabel model licensing and the LoRA
-repository still mixes adapter and full-model artifacts.
+Current gate: **NO-GO for merging the HF repairs**. The GitHub source is public,
+but both live default-branch cards still mislabel model licensing and the LoRA
+default branch still mixes adapter and full-model artifacts. The clean state
+exists only on the two open PR candidate revisions until they are reviewed and
+merged.
 
 The gate can change to **GO** only after the local diff is accepted, GitHub
 publication is explicitly authorized, both HF PRs match this plan, all checks

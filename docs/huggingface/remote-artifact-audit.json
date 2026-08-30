@@ -67,5 +67,24 @@
       "finding": "The current adapter is the intended 1000-step LoRA, while the three model.* artifacts are an older 500-step full merge left by the initial upload. The repository therefore has an unsafe mixed artifact surface."
     }
   },
-  "remote_changes_performed": []
+  "remote_changes_performed": [
+    {
+      "repo_id": "steven0226/qwen2.5-3b-grpo-gsm8k",
+      "mode": "pull_request",
+      "discussion": 1,
+      "url": "https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k/discussions/1",
+      "candidate_oid": "177db5a8a24b82d25bd57be952bfc47de8ca06e4",
+      "status": "open",
+      "merged": false
+    },
+    {
+      "repo_id": "steven0226/qwen2.5-3b-grpo-gsm8k-lora",
+      "mode": "pull_request",
+      "discussion": 1,
+      "url": "https://huggingface.co/steven0226/qwen2.5-3b-grpo-gsm8k-lora/discussions/1",
+      "candidate_oid": "bd7997a79079dac895dfb46dcecab9a37a7bf770",
+      "status": "open",
+      "merged": false
+    }
+  ]
 }
