@@ -32,8 +32,8 @@
 - Modify: tests/test_repository_health.py
 
 **Interfaces:**
-- Consumes: Existing ROOT constant and repository-health test conventions in tests/test_repository_health.py.
-- Produces: A weekly grouped GitHub Actions update policy, a single maintainer guide, and dependency-free tests that define their required content.
+- Consumes: Existing ROOT constant and rendered-link validation in tests/test_repository_health.py.
+- Produces: A fenced-code-aware link check, a weekly grouped GitHub Actions update policy, and a single maintainer guide.
 
 - [ ] **Step 1: Create an isolated implementation worktree**
 
@@ -52,62 +52,64 @@ git branch --show-current
 
 Expected: clean status on the planning branch, with the design and plan commits present.
 
-- [ ] **Step 2: Write the failing repository-health tests**
-
-Append these tests to tests/test_repository_health.py:
-
-~~~python
-def test_dependabot_github_actions_policy_is_pinned():
-    text = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
-
-    required = (
-        'version: 2',
-        'package-ecosystem: "github-actions"',
-        'directory: "/"',
-        'interval: "weekly"',
-        'day: "monday"',
-        'time: "09:00"',
-        'timezone: "Asia/Taipei"',
-        'open-pull-requests-limit: 3',
-        'prefix: "ci"',
-        'patterns:',
-        '- "*"',
-    )
-    assert all(fragment in text for fragment in required)
-    assert text.count('package-ecosystem: "github-actions"') == 1
-
-
-def test_maintenance_guide_is_the_documented_operator_entrypoint():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    guide = (ROOT / "docs" / "MAINTENANCE.md").read_text(encoding="utf-8")
-
-    assert "[維護與發布防呆指南](docs/MAINTENANCE.md)" in readme
-    for heading in (
-        "## 1. 預設做法",
-        "## 2. 一般 GitHub 修改",
-        "## 3. 發布 GitHub 版本",
-        "## 4. 修改 Hugging Face",
-        "## 5. 檢查失敗時",
-        "## 6. 復原方式",
-    ):
-        assert heading in guide
-    for prohibition in (
-        "不要 force-push",
-        "不要移動或重建既有 release tag",
-        "不要直接寫入、刪除或重寫 HF default branch",
-    ):
-        assert prohibition in guide
-~~~
-
-- [ ] **Step 3: Run the focused tests and observe the expected failure**
+- [ ] **Step 2: Confirm the fenced-code link-check failure (RED)**
 
 Run:
 
 ~~~powershell
-python -m pytest tests/test_repository_health.py -q
+python -m pytest tests/test_repository_health.py::test_local_markdown_links_exist -vv
 ~~~
 
-Expected: failures caused by the missing .github/dependabot.yml and docs/MAINTENANCE.md files.
+Expected: FAIL with two false missing-link reports from this plan's fenced code
+examples. This is the required RED evidence; do not add another source-text
+test.
+
+- [ ] **Step 3: Make the link checker inspect rendered Markdown only (GREEN)**
+
+Add this helper below ROOT in tests/test_repository_health.py:
+
+~~~python
+MARKDOWN_FENCE_PATTERN = re.compile(r"^\s*(`{3,}|~{3,})")
+
+
+def _rendered_markdown_text(text):
+    rendered_lines = []
+    fence_character = None
+    fence_length = 0
+    for line in text.splitlines():
+        match = MARKDOWN_FENCE_PATTERN.match(line)
+        if match:
+            marker = match.group(1)
+            if fence_character is None:
+                fence_character = marker[0]
+                fence_length = len(marker)
+            elif marker[0] == fence_character and len(marker) >= fence_length:
+                fence_character = None
+                fence_length = 0
+            continue
+        if fence_character is None:
+            rendered_lines.append(line)
+    return "\n".join(rendered_lines)
+~~~
+
+In test_local_markdown_links_exist, replace the raw-file pattern input with:
+
+~~~python
+        rendered_text = _rendered_markdown_text(
+            markdown.read_text(encoding="utf-8")
+        )
+        for raw_target in pattern.findall(rendered_text):
+~~~
+
+Run:
+
+~~~powershell
+python -m pytest tests/test_repository_health.py::test_local_markdown_links_exist -vv
+~~~
+
+Expected: PASS. The existing test remains capable of rejecting a missing link
+that is actually rendered, while links inside backtick or tilde fences are
+ignored.
 
 - [ ] **Step 4: Create the Dependabot configuration**
 
@@ -234,10 +236,11 @@ Expected: all repository-health tests pass.
 Run:
 
 ~~~powershell
-python -c "import yaml, pathlib; data=yaml.safe_load(pathlib.Path('.github/dependabot.yml').read_text(encoding='utf-8')); assert data['version'] == 2; print('dependabot YAML parsed')"
+python -c "import yaml, pathlib; data=yaml.safe_load(pathlib.Path('.github/dependabot.yml').read_text(encoding='utf-8')); expected={'version':2,'updates':[{'package-ecosystem':'github-actions','directory':'/','schedule':{'interval':'weekly','day':'monday','time':'09:00','timezone':'Asia/Taipei'},'groups':{'github-actions':{'patterns':['*']}},'open-pull-requests-limit':3,'commit-message':{'prefix':'ci'}}]}; assert data == expected, data; print('dependabot YAML parsed and matched')"
 ~~~
 
-Expected: dependabot YAML parsed.
+Expected: dependabot YAML parsed and matched. This is a semantic configuration
+check, not a source-text grep; do not add PyYAML to the repository or CI.
 
 - [ ] **Step 9: Commit the versioned guardrails**
 
@@ -392,6 +395,23 @@ gh run watch $guardrailTestsRun --repo kuotunyu/grpo-rlvr-reasoning --exit-statu
 ~~~
 
 Expected: all three matrix jobs succeed on the exact merged main commit.
+
+- [ ] **Step 7: Verify the merged Dependabot configuration from GitHub**
+
+Run:
+
+~~~powershell
+$guardrailPr = gh pr view maintenance/guardrails --repo kuotunyu/grpo-rlvr-reasoning --json number --jq .number
+$guardrailMergeSha = gh pr view $guardrailPr --repo kuotunyu/grpo-rlvr-reasoning --json mergeCommit --jq .mergeCommit.oid
+$guardrailRemoteConfig = gh api "repos/kuotunyu/grpo-rlvr-reasoning/contents/.github/dependabot.yml?ref=$guardrailMergeSha" | ConvertFrom-Json
+if ($guardrailRemoteConfig.path -ne ".github/dependabot.yml") { throw "Dependabot config missing from merged commit" }
+$guardrailRemoteYaml = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($guardrailRemoteConfig.content -replace '\s', '')))
+$guardrailRemoteYaml | python -c "import sys,yaml; data=yaml.safe_load(sys.stdin.read()); expected={'version':2,'updates':[{'package-ecosystem':'github-actions','directory':'/','schedule':{'interval':'weekly','day':'monday','time':'09:00','timezone':'Asia/Taipei'},'groups':{'github-actions':{'patterns':['*']}},'open-pull-requests-limit':3,'commit-message':{'prefix':'ci'}}]}; assert data == expected, data; print('remote dependabot YAML parsed and matched')"
+~~~
+
+Expected: the exact merged GitHub blob parses and matches the approved
+configuration. GitHub will consume this default-branch file on its next
+Dependabot schedule.
 
 ### Task 4: Enable repository security maintenance
 

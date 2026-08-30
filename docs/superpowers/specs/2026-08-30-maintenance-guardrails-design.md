@@ -93,19 +93,21 @@ Add one visible link to `docs/MAINTENANCE.md` near the verification or license
 sections. The README remains the project overview; the maintenance guide is the
 only operational source of truth.
 
-### Repository-health tests
+### Repository-health validation
 
-Extend the existing dependency-free tests to verify:
+Update the existing local Markdown-link test so fenced code examples are not
+treated as rendered links. The test will continue to verify the real README
+link to `docs/MAINTENANCE.md` and every other rendered local link.
 
-- `.github/dependabot.yml` exists and contains the approved ecosystem,
-  schedule, timezone, group, PR limit, and commit prefix.
-- `README.md` links to `docs/MAINTENANCE.md`.
-- The maintainer guide contains the normal, release, HF, failure, and recovery
-  sections plus the explicit prohibitions on force-push and direct HF writes.
+Do not add exact-text tests for the human maintainer guide. Such tests would
+fire on harmless copy edits without proving operational behavior. Review the
+guide content in the PR instead.
 
-The tests will not add PyYAML or another runtime dependency. They will validate
-the small, intentionally fixed configuration as text, while a separate local
-YAML parse check will run before publication.
+Do not grep the Dependabot source text in a unit test. Parse the complete YAML
+locally and assert its structured values before publication, then use GitHub's
+acceptance of the default-branch configuration as the integration check. This
+keeps repository-health tests dependency-free without substituting fragile
+source-text assertions for behavior.
 
 ## GitHub Remote Settings
 
@@ -180,7 +182,8 @@ blocking the PR that installs its own documentation and tests.
 
 ## Acceptance Criteria
 
-- Repository tests pass on Python 3.10, 3.11, and 3.12.
+- Repository tests pass on Python 3.10, 3.11, and 3.12, and the Markdown-link
+  test ignores fenced examples while still rejecting missing rendered links.
 - Result verification, compile checks, YAML parsing, and the live release audit
   pass locally.
 - The maintenance PR and exact merged `main` commit pass all CI jobs.
