@@ -29,6 +29,7 @@ hf_cache/
 .env
 .claude/
 .worktrees/
+docs/superpowers/
 
 # 私人筆記,不上 GitHub
 interview.md
